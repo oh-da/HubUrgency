@@ -372,34 +372,30 @@ class ResultTransformer:
     def explode_by_project(df: pd.DataFrame, uid_column: str = 'all_project_uids') -> pd.DataFrame:
         """
         Explode DataFrame so each row contains a single project UID.
-        
+
+        Hub groups with no intersecting projects are preserved with NaN project_uid.
+
         Args:
             df: DataFrame with list column to explode
             uid_column: Name of column containing UID lists
-            
+
         Returns:
             Exploded DataFrame with one row per project UID
         """
         if uid_column not in df.columns:
             raise ValueError(f"Column '{uid_column}' not found. Run combine_project_uids() first.")
-        
-        # Only explode rows that have UIDs
-        has_uids = df[uid_column].apply(lambda x: len(x) > 0 if isinstance(x, list) else False)
-        
-        df_with_uids = df[has_uids].copy()
-        df_without_uids = df[~has_uids].copy()
-        
-        if len(df_with_uids) == 0:
-            logger.warning("No rows have project UIDs to explode")
-            df['project_uid'] = None
-            return df
-        
-        # Explode the UID column
-        df_exploded = df_with_uids.explode(uid_column).reset_index(drop=True)
+
+        # Explode the UID column (empty lists produce NaN rows, preserving hub groups)
+        df_exploded = df.explode(uid_column).reset_index(drop=True)
         df_exploded = df_exploded.rename(columns={uid_column: 'project_uid'})
-        
-        logger.info(f"Exploded {len(df_with_uids)} rows to {len(df_exploded)} rows (one per project UID)")
-        
+
+        n_with_projects = df_exploded['project_uid'].notna().sum()
+        n_without_projects = df_exploded['project_uid'].isna().sum()
+        logger.info(
+            f"Exploded to {len(df_exploded)} rows "
+            f"({n_with_projects} with projects, {n_without_projects} hub cells with 0 projects)"
+        )
+
         return df_exploded
     
     @classmethod
