@@ -322,25 +322,30 @@ df['scn_year'] = DataTypeHandler.to_numeric_safe(df['scn_year'], 'scn_year')
 
 **Purpose**: Identify projects with status=0 (not started/cancelled/on hold).
 
-**Implementation**:
+**Implementation** (matches `HubProjectStatusPipeline.get_status_zero_projects()`):
 ```python
 def get_status_zero_projects(joined_df):
-    """Extract projects with status weight = 0."""
-    status_zero = joined_df[joined_df['status_weight'] == 0].copy()
+    """Extract the project-level rows whose status weight = 0."""
+    # The pipeline returns these rows as-is (one row per status-zero
+    # hub-project pair); it does NOT pre-aggregate to per-hub counts.
+    return joined_df[joined_df['status_weight'] == 0].copy()
+```
 
-    # Aggregate by hub
-    status_zero_stats = status_zero.groupby('group').agg(
-        total_projects=('uid', 'count'),
-        status_zero_count=('uid', 'count')
+**Deriving the per-hub summary** (note: `total_projects` must come from *all*
+projects in the hub, not just the status-zero subset, otherwise the percentage is
+always 100%):
+```python
+def summarize_status_zero(status_zero_rows, progress_df):
+    """Roll the project-level rows up to per-hub status_zero_count / _pct."""
+    summary = (
+        status_zero_rows.groupby('group').size()
+            .rename('status_zero_count').reset_index()
+            .merge(progress_df[['group', 'total_projects']], on='group')
     )
-
-    # Calculate percentage
-    status_zero_stats['status_zero_pct'] = (
-        100 * status_zero_stats['status_zero_count'] /
-        status_zero_stats['total_projects']
+    summary['status_zero_pct'] = (
+        100 * summary['status_zero_count'] / summary['total_projects']
     )
-
-    return status_zero_stats
+    return summary
 ```
 
 **Interpretation**:
@@ -671,14 +676,25 @@ Proj_status,weight
 
 #### Status Zero Report
 
+As written by the pipeline, this is **project-level** — one row per status-zero
+hub-project pair, with the joined-data columns:
+
 ```python
 {
-    'group': int,                # Hub group ID
-    'total_projects': int,       # Total projects in hub
-    'status_zero_count': int,    # Number of status=0 projects
-    'status_zero_pct': float     # Percentage (0-100)
+    'group': int,           # Hub group ID
+    'h3_index': str,        # Hub cell
+    'uid': str,             # Project UID
+    'proj_name': str,       # Project name
+    'main_type': str,       # Project type
+    'Proj_status': str,     # Status code
+    'scn_year': float,      # Scenario year
+    'status_weight': float  # == 0 for every row in this report
 }
 ```
+
+The per-hub summary (`status_zero_count`, `status_zero_pct`) is derived from these
+rows — see `summarize_status_zero()` above, or read `num_proj_status_0` from the
+status breakdown.
 
 ---
 

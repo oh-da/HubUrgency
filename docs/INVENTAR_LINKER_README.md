@@ -202,7 +202,7 @@ One row per (H3 cell, project UID) pair - ideal for SQL-style joins.
 | project_uid | any | Single project UID (one per row) |
 | ... | ... | Other hub columns |
 
-**Note:** The exploded output only contains rows where at least one project intersects.
+**Note:** The exploded output preserves hub cells with **no** intersecting projects as rows with `project_uid = NaN` (so no hub silently disappears). `ResultTransformer.explode_by_project()` explodes empty lists into NaN rows and logs both the with-project and zero-project counts. To keep only rows that have a project, filter afterwards: `exploded_df = exploded_df[exploded_df['project_uid'].notna()]`.
 
 ## Technical Details
 
