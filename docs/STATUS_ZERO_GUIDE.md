@@ -14,7 +14,31 @@ This analysis helps identify:
 
 ## Output Report Structure
 
-### Report: `hub_status_zero_report.csv`
+### What the pipeline writes: `hub_status_zero_report.csv`
+
+`HubProjectStatusPipeline.get_status_zero_projects()` (and
+`save_results(status_zero_path=...)`) writes the **project-level** rows whose
+`status_weight == 0` — one row per status-zero hub–project pair, with the same
+columns as the joined data (`group`, `h3_index`, `uid`, `proj_name`, `main_type`,
+`Proj_status`, `scn_year`, `status_weight`).
+
+### Derived per-hub summary
+
+The SQL and Python examples below operate on a **per-hub summary** with the
+columns shown here. Build it from the project-level report with one aggregation
+(or read `num_proj_status_0` straight from `hub_status_breakdown.csv`):
+
+```python
+zero = pipeline.get_status_zero_projects()              # project-level rows
+status_zero_df = (
+    zero.groupby('group').size()
+        .rename('status_zero_count').reset_index()
+        .merge(progress_df[['group', 'total_projects']], on='group')
+)
+status_zero_df['status_zero_pct'] = (
+    100 * status_zero_df['status_zero_count'] / status_zero_df['total_projects']
+)
+```
 
 | Column | Description |
 |--------|-------------|
@@ -23,7 +47,9 @@ This analysis helps identify:
 | `status_zero_count` | Number of projects with status = 0 |
 | `status_zero_pct` | Percentage of status = 0 projects (%) |
 
-**Note**: Only groups with at least one status = 0 project are included in this report.
+**Note**: The derived summary naturally includes only groups with at least one
+status = 0 project (those are the only groups present in the project-level
+report).
 
 ## Interpretation Guide
 
@@ -49,6 +75,12 @@ This analysis helps identify:
 - Require immediate management review and corrective action
 
 ## Usage Examples
+
+> In the examples below, `hub_status_zero_report` / `status_zero_df` refers to the
+> **per-hub summary** (`group`, `total_projects`, `status_zero_count`,
+> `status_zero_pct`) derived from the project-level report as shown under
+> [Derived per-hub summary](#derived-per-hub-summary). If you query the raw
+> project-level file directly, aggregate by `group` first.
 
 ### SQL Analysis
 
@@ -92,8 +124,18 @@ ORDER BY avg_cancellation_rate;
 ```python
 import pandas as pd
 
-# Load the report
-status_zero_df = pd.read_csv('hub_status_zero_report.csv', encoding='windows-1255')
+# Load the project-level report and roll it up to the per-hub summary
+# (status_zero_df) that the examples below expect.
+progress_df = pd.read_csv('hub_status_progress.csv', encoding='windows-1255')
+zero_rows = pd.read_csv('hub_status_zero_report.csv', encoding='windows-1255')
+status_zero_df = (
+    zero_rows.groupby('group').size()
+        .rename('status_zero_count').reset_index()
+        .merge(progress_df[['group', 'total_projects']], on='group')
+)
+status_zero_df['status_zero_pct'] = (
+    100 * status_zero_df['status_zero_count'] / status_zero_df['total_projects']
+)
 
 # Identify critical hubs (>50% cancellation)
 critical_hubs = status_zero_df[status_zero_df['status_zero_pct'] > 50]
@@ -117,8 +159,17 @@ print(top_cancelled[['group', 'status_zero_count', 'total_projects']])
 
 ```python
 # Load both reports
+# (status_zero_df is the per-hub summary derived as shown in "Python Analysis" above)
 progress_df = pd.read_csv('hub_status_progress.csv', encoding='windows-1255')
-status_zero_df = pd.read_csv('hub_status_zero_report.csv', encoding='windows-1255')
+zero_rows = pd.read_csv('hub_status_zero_report.csv', encoding='windows-1255')
+status_zero_df = (
+    zero_rows.groupby('group').size()
+        .rename('status_zero_count').reset_index()
+        .merge(progress_df[['group', 'total_projects']], on='group')
+)
+status_zero_df['status_zero_pct'] = (
+    100 * status_zero_df['status_zero_count'] / status_zero_df['total_projects']
+)
 
 # Merge
 combined = progress_df.merge(
@@ -234,9 +285,18 @@ import pandas as pd
 from datetime import datetime
 
 def generate_monthly_status_zero_report():
-    # Load latest data
-    status_zero_df = pd.read_csv('hub_status_zero_report.csv', encoding='windows-1255')
-    
+    # Load latest data and roll the project-level report up to the per-hub summary
+    progress_df = pd.read_csv('hub_status_progress.csv', encoding='windows-1255')
+    zero_rows = pd.read_csv('hub_status_zero_report.csv', encoding='windows-1255')
+    status_zero_df = (
+        zero_rows.groupby('group').size()
+            .rename('status_zero_count').reset_index()
+            .merge(progress_df[['group', 'total_projects']], on='group')
+    )
+    status_zero_df['status_zero_pct'] = (
+        100 * status_zero_df['status_zero_count'] / status_zero_df['total_projects']
+    )
+
     # Generate summary statistics
     summary = {
         'report_date': datetime.now().strftime('%Y-%m-%d'),

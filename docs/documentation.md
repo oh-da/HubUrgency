@@ -298,7 +298,7 @@ Step 4: Analysis & Prioritization
 | `hubs_with_project_data.csv` | One row per (hub, project) pair | All hub columns + project details + status weights |
 | `hub_status_progress.csv` | One row per hub | Aggregated progress metrics: total projects, weighted sum, progress % |
 | `hub_status_breakdown.csv` | One row per hub | Columns: `num_proj_status_0`, `num_proj_status_1`, etc. |
-| `hub_status_zero_report.csv` | One row per hub (filtered) | Only hubs with status=0 projects, with cancellation % |
+| `hub_status_zero_report.csv` | One row per (hub, project) with weight=0 | Project-level rows for every status-zero (not-started/cancelled/unmapped) project, as written by `get_status_zero_projects()` |
 
 ### Key Columns Reference
 
@@ -315,12 +315,35 @@ Step 4: Analysis & Prioritization
 
 #### Status Zero Report (`hub_status_zero_report.csv`)
 
-| Column | Type | Description |
-|--------|------|-------------|
+As written by the pipeline (`get_status_zero_projects()` →
+`save_results(status_zero_path=...)`), this file contains the **project-level**
+rows whose `status_weight == 0` — i.e. the same columns as the joined data
+(`group`, `h3_index`, `uid`, `proj_name`, `main_type`, `Proj_status`, `scn_year`,
+`status_weight`), filtered to weight-zero projects.
+
+The per-hub `status_zero_count` / `status_zero_pct` table used by the analysis
+examples in [STATUS_ZERO_GUIDE.md](STATUS_ZERO_GUIDE.md) is **derived** from these
+rows with a short aggregation:
+
+```python
+zero = pipeline.get_status_zero_projects()              # project-level rows
+per_hub = (
+    zero.groupby('group').size()
+        .rename('status_zero_count').reset_index()
+        .merge(progress_df[['group', 'total_projects']], on='group')
+)
+per_hub['status_zero_pct'] = 100 * per_hub['status_zero_count'] / per_hub['total_projects']
+```
+
+| Derived column | Type | Description |
+|----------------|------|-------------|
 | `group` | int | Hub group ID |
 | `total_projects` | int | Total number of projects in hub |
 | `status_zero_count` | int | Number of status=0 projects |
 | `status_zero_pct` | float | Percentage of status=0 projects |
+
+> Equivalently, `num_proj_status_0` in `hub_status_breakdown.csv` already gives the
+> per-hub status-zero count directly.
 
 ---
 

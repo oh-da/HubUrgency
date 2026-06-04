@@ -62,7 +62,7 @@ uid_100,Metro Line 1,Metro,2,2030
 
 Required columns:
 ```
-Proj_status_id,weight
+Proj_status,weight
 1,0.10
 2,0.25
 3,0.40
@@ -73,7 +73,7 @@ Proj_status_id,weight
 8,1.00
 ```
 
-- `Proj_status_id`: Status identifier (matches `Proj_status` in project data)
+- `Proj_status`: Status identifier (must match the `Proj_status` column in the project data). **Note:** the column must be named `Proj_status` — the calculator validates `REQUIRED_WEIGHT_COLS = ['Proj_status', 'weight']` and will reject a `Proj_status_id` column.
 - `weight`: Normalized weight (0.0 to 1.0)
 
 **Status Types Example**:
