@@ -94,7 +94,7 @@ From `requirements.txt`:
 | numpy | 1.24.0 | Numerics |
 | geopandas | 0.14.0 | Shapefile I/O, spatial ops |
 | shapely | 2.0.0 | Geometry / intersection |
-| h3 | 3.7.0 | Hexagonal indexing, cell→polygon |
+| h3 | 4.0.0 | Hexagonal indexing, cell→polygon |
 | jupyter | 1.0.0 | Notebooks |
 | matplotlib | 3.7.0 | Visualization |
 | pytest | 7.4.0 | Testing (dev) |

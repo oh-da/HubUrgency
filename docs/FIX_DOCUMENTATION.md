@@ -20,7 +20,7 @@
 
 ## Changes Made
 
-### In `hub_project_status_calculator_fixed.py`:
+### In `hub_project_status_calculator.py`:
 
 ```python
 def combine_and_deduplicate(row):
@@ -85,15 +85,11 @@ elif len(unmatched_uids) > 10:
 ### If using the standalone Python module:
 
 ```python
-# OLD (before fix)
-from hub_project_status_calculator import HubProjectStatusPipeline
-
-# NEW (after fix)  
-from hub_project_status_calculator import HubProjectStatusPipeline  # Same import!
-# Just replace the file with the fixed version
+from huburgency import HubProjectStatusPipeline
 ```
 
-The API is **100% backward compatible**. No code changes needed.
+The API is **100% backward compatible**. No code changes needed beyond the
+import path, which now resolves through the installed `huburgency` package.
 
 ### If using the Jupyter notebook:
 
@@ -129,7 +125,7 @@ print(f"  intersecting_points: {type(hub_df['intersecting_points'].iloc[0])}")
 
 # 3. Run pipeline
 pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)
-joined_df, progress_df = pipeline.run()
+joined_df, progress_df, status_breakdown_df = pipeline.run()
 
 # 4. Verify results
 print(f"\\nResults:")

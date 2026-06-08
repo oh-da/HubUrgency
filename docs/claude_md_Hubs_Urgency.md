@@ -32,9 +32,9 @@ The Hubs Urgency system is a two-stage pipeline for analyzing transit hub priori
 
 ### Technology Stack
 
-- **Core**: Python 3.8+
-- **Data Processing**: pandas 1.3+, numpy 1.20+
-- **Spatial Analysis**: geopandas 0.10+, shapely 1.8+, h3-py 3.7+
+- **Core**: Python 3.10+
+- **Data Processing**: pandas 2.0+, numpy 1.24+
+- **Spatial Analysis**: geopandas 0.14+, shapely 2.0+, h3-py 4.0+
 - **Notebooks**: jupyter, matplotlib
 
 ### Design Philosophy

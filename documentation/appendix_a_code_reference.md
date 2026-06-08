@@ -1,19 +1,19 @@
 # Appendix A — Code Documentation
 
-A reference for every module, class, and public function in `src/`. This appendix
-documents the code **as written**; for the conceptual "why", see
-[Chapter 4](04_model_methodology.md).
+A reference for every module, class, and public function in the `huburgency`
+package. This appendix documents the code **as written**; for the conceptual
+"why", see [Chapter 4](04_model_methodology.md).
 
 ```
-src/
+src/huburgency/
 ├── __init__.py                         # package exports (version 1.0.0)
 ├── inventar_hub_linker.py              # Stage 1 — spatial linking
 └── hub_project_status_calculator.py    # Stage 2 — weighted progress
 ```
 
 The package re-exports the main classes, so both
-`from src.inventar_hub_linker import InventarHubLinker` and
-`from src import InventarHubLinker` work.
+`from huburgency.inventar_hub_linker import InventarHubLinker` and
+`from huburgency import InventarHubLinker` work.
 
 ---
 
@@ -195,17 +195,16 @@ Superseded by `DataTypeHandler` inside the pipeline; kept for ad-hoc use.
 
 ## A.3 Tests — `tests/test_calculator.py`
 
-Self-contained scripted tests (not pytest functions) for the calculator:
-- `create_synthetic_hub_data_with_lists()` — hub data with real list columns.
-- `create_hub_data_with_duplicates()` — data exercising per-group UID dedup.
-- `run_basic_test()` / `run_deduplication_test()` / `run_all_tests()` — drive the
-  pipeline and assert non-empty results and correct deduplication.
-
-> The test file imports from a module named `hub_project_status_calculator_fixed`
-> and reads `example_data.csv` / `example_status_weights.csv`. To run as-is, those
-> fixtures and the import name must be made available (e.g. alias the module and
-> add the example CSVs), or the imports updated to `hub_project_status_calculator`.
-> This is a known gap between the tests and the current module layout.
+Self-contained `pytest` tests for the calculator and linker helpers. All hub,
+project, and status-weight data is built in-memory via fixtures, so no external
+CSV files are required. Run with `pytest tests/` (or just `pytest`) from the
+repository root. Coverage includes:
+- `ListColumnParser` parsing of string/list/empty/None inputs.
+- Pipeline execution returning `(joined_df, progress_df, status_breakdown_df)`.
+- A numeric correctness check of `status_progress_pct`.
+- Per-group UID deduplication.
+- Validation errors for missing project columns and unmapped statuses.
+- `get_hubs_with_projects` filtering (regression test for the operator-precedence fix).
 
 ---
 
@@ -221,7 +220,7 @@ Self-contained scripted tests (not pytest functions) for the calculator:
 
 ### Extending the progress model
 ```python
-from src.hub_project_status_calculator import StatusProgressCalculator
+from huburgency import StatusProgressCalculator
 
 class CostWeightedCalculator(StatusProgressCalculator):
     """Weight each project's contribution by its cost."""
@@ -236,7 +235,7 @@ pipeline.calculator = CostWeightedCalculator(weights_df)   # swap in
 
 ### Adding a geometry type
 ```python
-from src.inventar_hub_linker import ShapefileLoader
+from huburgency.inventar_hub_linker import ShapefileLoader
 
 class PolygonLoader(ShapefileLoader):
     def __init__(self, filepath):

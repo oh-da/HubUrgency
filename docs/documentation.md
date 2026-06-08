@@ -95,19 +95,19 @@ The Hubs Urgency system provides two integrated capabilities:
 ### Requirements
 
 ```bash
-# Core dependencies
-pip install pandas numpy
+# Install the package and its core dependencies (from the repo root)
+pip install -e .
 
-# For spatial analysis (Inventar Linker)
-pip install geopandas shapely h3
-
-# For notebooks
-pip install jupyter matplotlib
+# Include notebook extras (jupyter, matplotlib)
+pip install -e ".[notebooks]"
 ```
+
+Core dependencies (installed automatically): `pandas`, `numpy`, `geopandas`,
+`shapely`, `h3>=4.0.0`.
 
 ### System Requirements
 
-- Python 3.8+
+- Python 3.10+
 - 4GB RAM minimum (8GB recommended for large datasets)
 - Storage: ~500MB per 10,000 hubs
 
@@ -118,7 +118,7 @@ pip install jupyter matplotlib
 ### 1. Link Infrastructure Projects to Hubs
 
 ```python
-from inventar_hub_linker import link_inventar_to_hubs
+from huburgency import link_inventar_to_hubs
 
 # Run spatial linking
 results = link_inventar_to_hubs(
@@ -138,7 +138,7 @@ print(f"Linked {len(exploded_df)} hub-project pairs")
 ### 2. Calculate Hub Status Progress
 
 ```python
-from hub_project_status_calculator import (
+from huburgency import (
     DataLoader,
     HubProjectStatusPipeline
 )
@@ -397,7 +397,7 @@ project_df['uid'] = project_df['uid'].astype(str).str.strip()
 print(type(hub_df['intersecting_points'].iloc[0]))  # Should be <class 'list'>
 
 # If strings, parse them:
-from hub_project_status_calculator import load_hub_csv
+from huburgency import load_hub_csv
 hub_df = load_hub_csv('hubs.csv')  # Automatically parses lists
 ```
 
@@ -478,7 +478,7 @@ HubUrgency/
 #### Adding New Status Weight Calculations
 
 ```python
-from hub_project_status_calculator import StatusProgressCalculator
+from huburgency import StatusProgressCalculator
 
 class TimeWeightedCalculator(StatusProgressCalculator):
     """Custom calculator with time-based weighting."""
@@ -499,7 +499,7 @@ class TimeWeightedCalculator(StatusProgressCalculator):
 #### Adding New Geometry Types
 
 ```python
-from inventar_hub_linker import ShapefileLoader
+from huburgency.inventar_hub_linker import ShapefileLoader
 
 class CustomGeometryLoader(ShapefileLoader):
     """Loader for custom geometry type."""
