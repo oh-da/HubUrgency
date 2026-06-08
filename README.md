@@ -87,12 +87,17 @@ HubUrgency/
 │   ├── Hub_Project_Status_Analysis.ipynb
 │   └── inventar_hub_linker_notebook.ipynb
 ├── docs/                             # Documentation
-│   ├── documentation.md              # Complete technical documentation
-│   ├── USAGE_GUIDE.md               # Usage guide for status calculator
-│   ├── INVENTAR_LINKER_README.md    # Spatial linker documentation
-│   ├── STATUS_ZERO_GUIDE.md         # Analysis guide for cancelled projects
-│   ├── FIX_DOCUMENTATION.md         # Bug fixes and migration guide
-│   └── claude_md_Hubs_Urgency.md    # Technical reference
+│   ├── README.md                     # Documentation index
+│   ├── 01_project_overview.md        # ┐
+│   ├── 02_inputs.md                  # │
+│   ├── 03_process_workflow.md        # ├ Narrative reference (read in order)
+│   ├── 04_model_methodology.md       # │
+│   ├── 05_outputs.md                 # ┘
+│   ├── appendix_a_code_reference.md  # Full code reference
+│   ├── appendix_b_glossary.md        # Glossary & FAQ
+│   ├── USAGE_GUIDE.md                # How-to: status calculator
+│   ├── INVENTAR_LINKER_README.md     # How-to: spatial linker
+│   └── STATUS_ZERO_GUIDE.md          # How-to: cancelled/stalled projects
 ├── pyproject.toml                    # Build & packaging metadata
 ├── requirements.txt                  # Python dependencies
 ├── LICENSE                           # Proprietary license
@@ -102,11 +107,14 @@ HubUrgency/
 
 ## Documentation
 
-- **[Complete Documentation](docs/documentation.md)**: Comprehensive guide covering architecture, installation, usage, and troubleshooting
-- **[Usage Guide](docs/USAGE_GUIDE.md)**: Detailed usage instructions for the status calculator
-- **[Spatial Linker Guide](docs/INVENTAR_LINKER_README.md)**: Documentation for the spatial linking module
-- **[Status Zero Analysis](docs/STATUS_ZERO_GUIDE.md)**: Guide for analyzing cancelled/stalled projects
-- **[Bug Fixes](docs/FIX_DOCUMENTATION.md)**: Documentation of bug fixes and migrations
+Full documentation lives in **[`docs/`](docs/README.md)** — start with the index.
+
+- **[Documentation Index](docs/README.md)**: Map of the narrative chapters, code reference, and how-to guides
+- **[Project Overview](docs/01_project_overview.md)**: Goal, problem, and conceptual model (chapters 01–05 read in order)
+- **[Code Reference](docs/appendix_a_code_reference.md)**: Every module, class, and function in `src/huburgency/`
+- **[Usage Guide](docs/USAGE_GUIDE.md)**: How to run the status calculator (overrides, pre-exploded input, all-hubs backfill)
+- **[Spatial Linker Guide](docs/INVENTAR_LINKER_README.md)**: How to link projects to hubs (Stage 1)
+- **[Status-Zero Guide](docs/STATUS_ZERO_GUIDE.md)**: Analyzing cancelled/stalled projects
 
 ## Dependencies
 

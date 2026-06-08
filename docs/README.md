@@ -1,14 +1,14 @@
-# HubUrgency — Full Model & Process Documentation
+# HubUrgency Documentation
 
-This folder contains the **complete, end-to-end documentation** of the HubUrgency
-model: what the project is for, what data goes in, every processing step and what
-it does, the analytical model behind the numbers, and a full code reference as an
-appendix.
+This folder is the **complete documentation** of the HubUrgency model: what the
+project is for, what data goes in, every processing step and what it does, the
+analytical model behind the numbers, a full code reference, and task-focused
+how-to guides.
 
-It is written to be read top-to-bottom as a single document, split into chapters
-for navigability. If you only have five minutes, read
-[01 — Project Overview](01_project_overview.md) and the
-[Process at a glance](03_process_workflow.md#process-at-a-glance) section.
+The numbered chapters (01–05) plus the appendices read top-to-bottom as a single
+narrative reference; the task guides at the end are standalone how-tos. If you
+only have five minutes, read [01 — Project Overview](01_project_overview.md) and
+the [Process at a glance](03_process_workflow.md#process-at-a-glance) section.
 
 ---
 
@@ -21,7 +21,7 @@ for navigability. If you only have five minutes, read
 | 3 | [Process Workflow](03_process_workflow.md) | What are the steps, start to finish, and what happens in each? |
 | 4 | [The Model & Methodology](04_model_methodology.md) | How is "progress" actually computed? What does each number mean? |
 | 5 | [Outputs](05_outputs.md) | What files are produced and what does every column mean? |
-| A | [Appendix A — Code Documentation](appendix_a_code_reference.md) | Reference for every module, class, and function in `src/`. |
+| A | [Appendix A — Code Documentation](appendix_a_code_reference.md) | Reference for every module, class, and function in `src/huburgency/`. |
 | B | [Appendix B — Glossary & FAQ](appendix_b_glossary.md) | Terms, encodings, CRS, and common questions. |
 
 ---
@@ -41,14 +41,16 @@ are advancing and which are stuck.
 
 ---
 
-## Relationship to the existing `docs/` folder
+## Task-focused guides
 
-The repository already contains topic-specific guides under `docs/`
-(`USAGE_GUIDE.md`, `INVENTAR_LINKER_README.md`, `STATUS_ZERO_GUIDE.md`, etc.).
-Those remain valid as task-focused how-tos. **This `documentation/` folder is the
-single, self-contained narrative reference** describing the model and process from
-start to finish, with the code reference attached as an appendix. Where the older
-guides and the current source code differ, this documentation follows the
-**actual behavior of the code in `src/`** and calls out the discrepancy.
-</content>
-</invoke>
+Alongside the narrative chapters above, these standalone how-tos cover specific
+tasks:
+
+| Guide | Use it when you want to… |
+|-------|--------------------------|
+| [Usage Guide](USAGE_GUIDE.md) | Run the status calculator, including status overrides, pre-exploded input, and all-hubs backfill. |
+| [Spatial Linker Guide](INVENTAR_LINKER_README.md) | Link infrastructure projects to hubs (Stage 1) and understand its options. |
+| [Status-Zero Guide](STATUS_ZERO_GUIDE.md) | Analyze stalled/cancelled (status = 0) projects. |
+
+Where these guides and the source code ever differ, the chapters and Appendix A
+follow the **actual behavior of the code in `src/huburgency/`**.
