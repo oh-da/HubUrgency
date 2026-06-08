@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "huburgency"
+version = "1.0.0"
+description = "Spatial analysis system for calculating weighted project status progress for transit hubs in Israel."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Ohad Dahan", email = "ohad@ayalonhw.co.il" },
+]
+keywords = ["h3", "geospatial", "transit", "hubs", "gis"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "geopandas>=0.14.0",
+    "shapely>=2.0.0",
+    "h3>=4.0.0",
+]
+
+[project.optional-dependencies]
+notebooks = [
+    "jupyter>=1.0.0",
+    "matplotlib>=3.7.0",
+]
+dev = [
+    "pytest>=7.4.0",
+]
+
+[project.scripts]
+huburgency-link = "huburgency.inventar_hub_linker:main"
+
+[project.urls]
+Documentation = "https://github.com/oh-da/huburgency/tree/main/docs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

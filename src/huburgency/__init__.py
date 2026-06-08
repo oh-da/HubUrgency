@@ -10,7 +10,8 @@ Modules:
 """
 
 __version__ = "1.0.0"
-__author__ = "HubUrgency Team"
+__author__ = "Ohad Dahan"
+__email__ = "ohad@ayalonhw.co.il"
 
 from .inventar_hub_linker import (
     InventarHubLinker,
@@ -20,6 +21,9 @@ from .inventar_hub_linker import (
     InventarLoaderFactory,
     H3PolygonConverter,
     SpatialIntersector,
+    link_inventar_to_hubs,
+    combine_and_explode_projects,
+    get_hubs_with_projects,
 )
 
 from .hub_project_status_calculator import (
@@ -28,6 +32,10 @@ from .hub_project_status_calculator import (
     ListColumnParser,
     ProjectDataJoiner,
     StatusProgressCalculator,
+    StatusOverrideHandler,
+    PreExplodedDataHandler,
+    load_hub_csv,
+    fix_scn_year_dtype,
 )
 
 __all__ = [
@@ -39,10 +47,17 @@ __all__ = [
     "InventarLoaderFactory",
     "H3PolygonConverter",
     "SpatialIntersector",
+    "link_inventar_to_hubs",
+    "combine_and_explode_projects",
+    "get_hubs_with_projects",
     # Status Calculator
     "HubProjectStatusPipeline",
     "DataLoader",
     "ListColumnParser",
     "ProjectDataJoiner",
     "StatusProgressCalculator",
+    "StatusOverrideHandler",
+    "PreExplodedDataHandler",
+    "load_hub_csv",
+    "fix_scn_year_dtype",
 ]

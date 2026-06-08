@@ -119,7 +119,7 @@ Columns:
 
 ### Basic Usage
 ```python
-from hub_project_status_calculator import (
+from huburgency import (
     DataLoader, 
     HubProjectStatusPipeline
 )
@@ -132,7 +132,7 @@ weights_df = loader.load_csv('status_weights.csv')
 
 # Run pipeline
 pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)
-joined_df, progress_df = pipeline.run()
+joined_df, progress_df, status_breakdown_df = pipeline.run()
 
 # Save results
 pipeline.save_results(
@@ -144,14 +144,14 @@ pipeline.save_results(
 ### Custom UID Columns
 ```python
 # If your hub data has different column names for UIDs
-joined_df, progress_df = pipeline.run(
+joined_df, progress_df, status_breakdown_df = pipeline.run(
     uid_columns=['points_uid', 'lines_uid', 'stations_uid']
 )
 ```
 
 ### Advanced: Custom Calculation
 ```python
-from hub_project_status_calculator import StatusProgressCalculator
+from huburgency import StatusProgressCalculator
 
 class WeightedByYearCalculator(StatusProgressCalculator):
     """Custom calculator that weights by scenario year proximity."""
@@ -177,8 +177,71 @@ class WeightedByYearCalculator(StatusProgressCalculator):
 # Use custom calculator
 pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)
 pipeline.calculator = WeightedByYearCalculator(weights_df)
-joined_df, progress_df = pipeline.run()
+joined_df, progress_df, status_breakdown_df = pipeline.run()
 ```
+
+## Advanced Features
+
+The pipeline supports three optional capabilities, each available in either input mode.
+
+### Pre-exploded Input Mode
+
+If your data is already exploded to one row per `(group, project_uid)` with a
+`Proj_status` column, skip the internal join entirely:
+
+```python
+from huburgency import HubProjectStatusPipeline, DataLoader
+
+loader = DataLoader()
+hub_project_df = loader.load_csv('Hubs_w_InventarProjects_filtered.csv')
+weights_df = loader.load_csv('status_weights.csv')
+
+pipeline = HubProjectStatusPipeline(
+    status_weights_df=weights_df,
+    hub_project_df=hub_project_df,
+    use_pre_exploded=True,
+)
+joined_df, progress_df, status_breakdown_df = pipeline.run()
+```
+
+Rows with a missing `project_uid` are preserved — they represent hub groups with
+zero intersecting projects and surface in the output at 0% progress.
+
+### Status Overrides
+
+Supply a table with columns `uid` and `Proj_status` to replace the status of
+selected projects before scoring (useful for manual corrections without editing
+the source data):
+
+```python
+override_df = loader.load_csv_if_exists('status_override.csv')  # None if absent
+
+pipeline = HubProjectStatusPipeline(
+    status_weights_df=weights_df,
+    hub_project_df=hub_project_df,
+    status_override_df=override_df,   # ignored if None / empty
+    use_pre_exploded=True,
+)
+```
+
+### Guaranteeing Every Hub Appears (All-Hubs Backfill)
+
+Pass the full hub table as `all_hubs_df`; every group in it is guaranteed to
+appear in `progress_df`, with hubs that have no projects backfilled at 0%:
+
+```python
+all_hubs_df = loader.load_csv('Hubs_w_InventarProjects_combined.csv')
+
+pipeline = HubProjectStatusPipeline(
+    hub_df=hub_df,
+    project_df=project_df,
+    status_weights_df=weights_df,
+    all_hubs_df=all_hubs_df,
+)
+```
+
+These options compose freely and also work in raw mode
+(`hub_df` + `project_df`).
 
 ## Integration with Existing Pipeline
 
@@ -201,7 +264,7 @@ Final Hub Prioritization Analysis
 # After running Parts 1-3 of your existing pipeline
 from hub_demand_processor import DemandDataProcessor
 from influence_area_processor import InfluenceAreaProcessor
-from hub_project_status_calculator import HubProjectStatusPipeline, DataLoader
+from huburgency import HubProjectStatusPipeline, DataLoader
 
 # Complete Part 3
 influence_processor = InfluenceAreaProcessor()
@@ -221,7 +284,7 @@ status_pipeline = HubProjectStatusPipeline(
     status_weights_df=weights_df
 )
 
-joined_df, progress_df = status_pipeline.run()
+joined_df, progress_df, status_breakdown_df = status_pipeline.run()
 
 # Merge progress back to main hub dataset
 final_hubs = hubs_with_influence.merge(

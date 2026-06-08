@@ -214,7 +214,7 @@ Produces `Hubs_with_Inventar.csv`, `_combined.csv`, and `_exploded.csv`.
 
 ### Stage 1 — Python
 ```python
-from src.inventar_hub_linker import link_inventar_to_hubs
+from huburgency import link_inventar_to_hubs
 
 results = link_inventar_to_hubs(
     hubs_csv="data/Results_29-12-2025.csv",
@@ -226,7 +226,7 @@ base_df, combined_df, exploded_df = results["base"], results["combined"], result
 
 ### Stage 2 — Python
 ```python
-from src.hub_project_status_calculator import load_hub_csv, DataLoader, HubProjectStatusPipeline
+from huburgency import load_hub_csv, DataLoader, HubProjectStatusPipeline
 
 hub_df     = load_hub_csv("output/Hubs_with_Inventar_combined.csv")   # parses list columns
 project_df = DataLoader.load_csv("data/data.csv")

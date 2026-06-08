@@ -674,9 +674,9 @@ def get_hubs_with_projects(df: pd.DataFrame) -> pd.DataFrame:
         Filtered DataFrame
     """
     mask = (
-        df['intersecting_points'].apply(len) > 0 |
-        df['intersecting_lines'].apply(len) > 0 |
-        df['intersecting_multilines'].apply(len) > 0
+        (df['intersecting_points'].apply(len) > 0) |
+        (df['intersecting_lines'].apply(len) > 0) |
+        (df['intersecting_multilines'].apply(len) > 0)
     )
     return df[mask]
 

@@ -60,15 +60,18 @@ Hub Processing Pipeline Output    →    Inventar Linker    →    Hubs with Pro
 ## Installation
 
 ```bash
-pip install geopandas pandas numpy shapely h3
+# From the repository root
+pip install -e .
 ```
+
+Installs `geopandas`, `pandas`, `numpy`, `shapely`, and `h3>=4.0.0`.
 
 ## Usage
 
 ### Python API
 
 ```python
-from inventar_hub_linker import link_inventar_to_hubs, combine_and_explode_projects
+from huburgency import link_inventar_to_hubs, combine_and_explode_projects
 
 # Run full pipeline (creates 3 output files automatically)
 results = link_inventar_to_hubs(
@@ -103,11 +106,8 @@ This creates three files:
 ### Advanced Usage
 
 ```python
-from inventar_hub_linker import (
-    ProcessingConfig,
-    InventarHubLinker,
-    ResultTransformer
-)
+from huburgency import ProcessingConfig, InventarHubLinker
+from huburgency.inventar_hub_linker import ResultTransformer
 
 # Custom configuration
 config = ProcessingConfig(
@@ -133,7 +133,7 @@ results = linker.process_and_save_all_formats()
 ### Post-processing Existing Data
 
 ```python
-from inventar_hub_linker import combine_and_explode_projects
+from huburgency import combine_and_explode_projects
 import pandas as pd
 
 # Load existing output

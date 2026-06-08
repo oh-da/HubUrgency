@@ -1,17 +1,29 @@
 """
-Hub Project Status Progress Calculator - Fixed Version
+Hub Project Status Progress Calculator
 
-Fixes TypeError: agg function failed [how->mean,dtype->object]
-by ensuring scn_year is converted to numeric before aggregation.
+Calculates weighted project-status progress for transit hubs.
+
+Supports two input modes:
+    * Raw mode      - hub rows with intersecting-UID list columns plus a separate
+                      project attribute table (joined and exploded internally).
+    * Pre-exploded  - data already exploded to one row per (group, project_uid)
+                      with a ``Proj_status`` column.
+
+Optional features:
+    * Status overrides - update ``Proj_status`` for selected UIDs before scoring.
+    * All-hubs backfill - guarantee every hub group appears in the output,
+                          even hubs with zero intersecting projects (0% progress).
 
 Following SOLID principles from the Hub Prioritizing project.
 """
 
+import os
+import ast
+from pathlib import Path
+from typing import Optional, Tuple, List, Union
+
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple, List, Union
-from pathlib import Path
-import ast
 
 
 # =============================================================================
@@ -91,6 +103,14 @@ class DataLoader:
             print(f"✓ Loaded {filepath} with utf-8-sig: {len(df):,} rows")
             return df
     
+    @staticmethod
+    def load_csv_if_exists(filepath: str, encoding: str = 'windows-1255') -> Optional[pd.DataFrame]:
+        """Load a CSV if it exists, otherwise return None (no error)."""
+        if filepath and os.path.exists(filepath):
+            return DataLoader.load_csv(filepath, encoding)
+        print(f"  File not found (skipping): {filepath}")
+        return None
+
     @staticmethod
     def validate_columns(df: pd.DataFrame, required_cols: list, name: str) -> None:
         """Validate that required columns exist in dataframe."""
@@ -262,12 +282,120 @@ class ProjectDataJoiner:
         matched = result['proj_name'].notna().sum()
         total = len(result)
         print(f"✓ Joined {matched:,}/{total:,} records matched to projects ({100*matched/total:.1f}%)")
-        
+
         return result
 
 
 # =============================================================================
-# STATUS PROGRESS CALCULATOR (Single Responsibility) - FIXED
+# STATUS OVERRIDE HANDLER (Single Responsibility)
+# =============================================================================
+
+class StatusOverrideHandler:
+    """
+    Single Responsibility: Override project statuses for selected UIDs.
+
+    Given an override table with columns ``uid`` and ``Proj_status``, replaces the
+    status of matching projects before progress is calculated. This supports
+    manual corrections without editing the source project data.
+    """
+
+    REQUIRED_COLS = ['uid', 'Proj_status']
+
+    def __init__(self, override_df: Optional[pd.DataFrame] = None):
+        self.override_lookup = {}
+        if override_df is not None:
+            self._validate_and_prepare(override_df)
+
+    def _validate_and_prepare(self, df: pd.DataFrame) -> None:
+        missing = set(self.REQUIRED_COLS) - set(df.columns)
+        if missing:
+            raise ValueError(f"Status override data missing required columns: {missing}")
+
+        prepared = df.copy()
+        prepared['uid'] = pd.to_numeric(prepared['uid'], errors='coerce')
+        prepared = prepared.dropna(subset=['uid', 'Proj_status'])
+        self.override_lookup = dict(zip(
+            prepared['uid'].astype('int64'),
+            prepared['Proj_status'],
+        ))
+        print(f"✓ Loaded {len(self.override_lookup):,} status overrides")
+
+    def has_overrides(self) -> bool:
+        return len(self.override_lookup) > 0
+
+    def apply_overrides(
+        self,
+        df: pd.DataFrame,
+        uid_col: str = 'project_uid',
+        status_col: str = 'Proj_status',
+    ) -> pd.DataFrame:
+        """Return a copy of ``df`` with overridden statuses applied."""
+        if not self.has_overrides():
+            return df
+        if uid_col not in df.columns:
+            print(f"  ⚠ Warning: override uid column '{uid_col}' not found - skipping overrides")
+            return df
+
+        result = df.copy()
+        before = result[status_col].copy()
+
+        def _resolve(row):
+            uid = row[uid_col]
+            if pd.notna(uid):
+                key = int(uid)
+                if key in self.override_lookup:
+                    return self.override_lookup[key]
+            return row[status_col]
+
+        result[status_col] = result.apply(_resolve, axis=1)
+        changes = (before.astype(str) != result[status_col].astype(str)).sum()
+        print(f"✓ Applied {changes:,} status overrides")
+        return result
+
+
+# =============================================================================
+# PRE-EXPLODED DATA HANDLER (Single Responsibility)
+# =============================================================================
+
+class PreExplodedDataHandler:
+    """
+    Single Responsibility: Prepare data that is already exploded to one row per
+    (group, project_uid) pair.
+
+    Rows with a missing ``project_uid`` are preserved - they represent hub groups
+    with zero intersecting projects and are needed so those hubs still appear in
+    the progress output.
+    """
+
+    REQUIRED_COLS = ['group', 'project_uid', 'Proj_status']
+
+    def __init__(self, df: pd.DataFrame):
+        if df is None:
+            raise ValueError("Pre-exploded mode requires a hub_project_df")
+        missing = set(self.REQUIRED_COLS) - set(df.columns)
+        if missing:
+            raise ValueError(f"Pre-exploded data missing required columns: {missing}")
+
+        prepared = df.copy()
+        prepared['project_uid'] = pd.to_numeric(prepared['project_uid'], errors='coerce')
+        # Keep rows with NaN project_uid (hubs with 0 projects); drop only bad groups.
+        prepared = prepared.dropna(subset=['group'])
+        prepared = prepared.drop_duplicates(subset=['group', 'project_uid'])
+
+        n_pairs = prepared['project_uid'].notna().sum()
+        n_empty = prepared['project_uid'].isna().sum()
+        print(
+            f"✓ Prepared {len(prepared):,} pre-exploded rows "
+            f"({n_pairs:,} hub-project pairs, {n_empty:,} hub groups with 0 projects)"
+        )
+        self.df = prepared
+
+    def get_data(self) -> pd.DataFrame:
+        return self.df
+
+
+# =============================================================================
+# STATUS PROGRESS CALCULATOR (Single Responsibility)
 # =============================================================================
 
 class StatusProgressCalculator:
@@ -320,6 +448,14 @@ class StatusProgressCalculator:
         
         return df
     
+    @staticmethod
+    def _project_id_column(df: pd.DataFrame) -> Optional[str]:
+        """Return the project-identity column ('uid' in raw mode, 'project_uid' in pre-exploded)."""
+        for candidate in ('uid', 'project_uid'):
+            if candidate in df.columns:
+                return candidate
+        return None
+
     def calculate_hub_progress(
         self,
         hub_projects_df: pd.DataFrame,
@@ -327,45 +463,65 @@ class StatusProgressCalculator:
     ) -> pd.DataFrame:
         """
         Calculate weighted status progress for each hub.
-        
+
+        Rows with a missing project id are treated as placeholders for hubs with
+        zero intersecting projects: they contribute 0 projects and 0 weight, so
+        such hubs surface with 0% progress instead of being dropped.
+
         Args:
             hub_projects_df: DataFrame with hub-project relationships
             group_col: Column name for hub grouping
-            
+
         Returns:
             DataFrame with hub-level progress metrics
         """
         print(f"\nCalculating status progress by group...")
-        
-        # Map status to weights
-        df = self._map_status_to_weight(hub_projects_df)
-        
-        # Prepare columns for aggregation
-        df = self._prepare_for_aggregation(df)
-        
-        # Calculate max possible weight
+
+        df = hub_projects_df.copy()
+
+        # Flag real projects vs zero-project placeholders.
+        id_col = self._project_id_column(df)
+        if id_col is not None:
+            df['_has_project'] = df[id_col].notna().astype(int)
+        else:
+            df['_has_project'] = 1
+
+        # Map status to weight (placeholders contribute zero weight).
+        df['status_weight'] = (
+            df['Proj_status'].astype(str).map(self.weight_lookup).fillna(0)
+        )
+        df['status_weight'] = (
+            DataTypeHandler.to_numeric_safe(df['status_weight'], 'status_weight').fillna(0)
+            * df['_has_project']
+        )
+
         max_weight = max(self.weight_lookup.values())
-        
-        # Aggregate by hub
+
+        # unique_statuses counts only real projects.
+        real = df[df['_has_project'] == 1]
+        unique_statuses = real.groupby(group_col)['Proj_status'].nunique()
+
         hub_stats = df.groupby(group_col).agg(
-            total_projects=('uid', 'count'),
+            total_projects=('_has_project', 'sum'),
             current_weighted_sum=('status_weight', 'sum'),
-            max_possible_sum=('uid', lambda x: len(x) * max_weight),
-            unique_statuses=('Proj_status', 'nunique')
         ).reset_index()
-        
-        # Calculate progress percentage
+        hub_stats['max_possible_sum'] = hub_stats['total_projects'] * max_weight
+        hub_stats['unique_statuses'] = (
+            hub_stats[group_col].map(unique_statuses).fillna(0).astype(int)
+        )
+
+        # Progress percentage; hubs with 0 projects -> 0% (avoid divide-by-zero).
         hub_stats['status_progress_pct'] = (
-            100 * hub_stats['current_weighted_sum'] / 
-            hub_stats['max_possible_sum']
-        ).round(2)
-        
-        print(f"✓ Calculated progress for {len(hub_stats):,} hubs")
+            100 * hub_stats['current_weighted_sum'] / hub_stats['max_possible_sum']
+        ).replace([np.inf, -np.inf], np.nan).round(2).fillna(0).clip(0, 100)
+
+        n_zero = int((hub_stats['total_projects'] == 0).sum())
+        print(f"✓ Calculated progress for {len(hub_stats):,} hubs ({n_zero:,} with 0 projects)")
         print(f"  Progress range: {hub_stats['status_progress_pct'].min():.1f}% - "
               f"{hub_stats['status_progress_pct'].max():.1f}%")
-        
+
         return hub_stats
-    
+
     def calculate_status_breakdown(
         self,
         hub_projects_df: pd.DataFrame,
@@ -384,10 +540,16 @@ class StatusProgressCalculator:
             DataFrame with one column per status containing project counts
         """
         print(f"\nCalculating status breakdown by group...")
-        
+
         df = hub_projects_df.copy()
+
+        # Exclude zero-project placeholder rows so they don't create a 'nan' status column.
+        id_col = self._project_id_column(df)
+        if id_col is not None:
+            df = df[df[id_col].notna()]
+
         df['Proj_status'] = df['Proj_status'].astype(str)
-        
+
         # Create pivot table: groups x statuses
         pivot = df.groupby([group_col, 'Proj_status']).size().unstack(fill_value=0)
         
@@ -413,58 +575,145 @@ class StatusProgressCalculator:
 
 class HubProjectStatusPipeline:
     """
-    Facade: Provides simple interface to entire workflow.
+    Facade: Provides a simple interface to the entire workflow.
     Dependency Inversion: Depends on abstractions (injected components).
+
+    Two input modes are supported:
+
+    Raw mode (default)::
+
+        HubProjectStatusPipeline(hub_df, project_df, status_weights_df)
+
+    where ``hub_df`` has intersecting-UID list columns and ``project_df`` is the
+    project attribute table.
+
+    Pre-exploded mode::
+
+        HubProjectStatusPipeline(
+            status_weights_df=weights_df,
+            hub_project_df=exploded_df,
+            use_pre_exploded=True,
+        )
+
+    where ``hub_project_df`` is already exploded to one row per
+    (group, project_uid).
+
+    Optional, in either mode:
+        status_override_df: table of (uid, Proj_status) overrides applied before scoring.
+        all_hubs_df: full hub table; every group in it is guaranteed to appear in
+            the progress output (hubs with no projects backfilled at 0%).
     """
-    
+
     def __init__(
         self,
-        hub_df: pd.DataFrame,
-        project_df: pd.DataFrame,
-        status_weights_df: pd.DataFrame
+        hub_df: Optional[pd.DataFrame] = None,
+        project_df: Optional[pd.DataFrame] = None,
+        status_weights_df: Optional[pd.DataFrame] = None,
+        status_override_df: Optional[pd.DataFrame] = None,
+        all_hubs_df: Optional[pd.DataFrame] = None,
+        hub_project_df: Optional[pd.DataFrame] = None,
+        use_pre_exploded: bool = False,
     ):
-        self.joiner = ProjectDataJoiner(hub_df, project_df)
+        if status_weights_df is None:
+            raise ValueError("status_weights_df is required")
+
         self.calculator = StatusProgressCalculator(status_weights_df)
+        self.override_handler = StatusOverrideHandler(status_override_df)
+        self.all_hubs_df = all_hubs_df
+        self.use_pre_exploded = use_pre_exploded
+        self.hub_project_df = hub_project_df
+        self.hub_df = hub_df
+        self.project_df = project_df
+
+        if use_pre_exploded:
+            if hub_project_df is None:
+                raise ValueError("use_pre_exploded=True requires hub_project_df")
+        else:
+            if hub_df is None or project_df is None:
+                raise ValueError("Raw mode requires both hub_df and project_df")
+
+        # Joiner is created lazily in run() (raw mode only).
+        self.joiner: Optional[ProjectDataJoiner] = None
         self.joined_df: Optional[pd.DataFrame] = None
         self.progress_df: Optional[pd.DataFrame] = None
         self.status_breakdown_df: Optional[pd.DataFrame] = None
-    
+
     def run(
-        self, 
+        self,
         uid_columns: list = None,
         group_col: str = 'group'
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Execute complete pipeline.
-        
+
         Returns:
             Tuple of (joined_df, progress_df, status_breakdown_df)
         """
         print("=" * 70)
-        print("STARTING HUB PROJECT STATUS ANALYSIS PIPELINE")
+        mode = 'Pre-exploded' if self.use_pre_exploded else 'Raw'
+        print(f"STARTING HUB PROJECT STATUS ANALYSIS PIPELINE (mode: {mode})")
         print("=" * 70)
-        
-        # Step 1: Join project data
-        self.joined_df = self.joiner.join_to_hubs(uid_columns)
-        
-        # Step 2: Calculate progress
+
+        # Step 1: Obtain the exploded hub-project data.
+        if self.use_pre_exploded:
+            self.joined_df = PreExplodedDataHandler(self.hub_project_df).get_data()
+            override_uid_col = 'project_uid'
+        else:
+            self.joiner = ProjectDataJoiner(self.hub_df, self.project_df)
+            self.joined_df = self.joiner.join_to_hubs(uid_columns)
+            override_uid_col = 'uid'
+
+        # Step 2: Apply status overrides (no-op if none supplied).
+        if self.override_handler.has_overrides():
+            self.joined_df = self.override_handler.apply_overrides(
+                self.joined_df, uid_col=override_uid_col, status_col='Proj_status'
+            )
+
+        # Step 3: Calculate progress.
         self.progress_df = self.calculator.calculate_hub_progress(
             self.joined_df,
             group_col
         )
-        
-        # Step 3: Calculate status breakdown (num_proj_status_X columns)
+
+        # Step 4: Backfill every hub group (0% for hubs with no projects).
+        if self.all_hubs_df is not None and group_col in self.all_hubs_df.columns:
+            self.progress_df = self._backfill_all_hubs(self.progress_df, group_col)
+
+        # Step 5: Calculate status breakdown (num_proj_status_X columns).
         self.status_breakdown_df = self.calculator.calculate_status_breakdown(
             self.joined_df,
             group_col
         )
-        
+
         print("\n" + "=" * 70)
         print("PIPELINE COMPLETED SUCCESSFULLY")
         print("=" * 70)
-        
+
         return self.joined_df, self.progress_df, self.status_breakdown_df
-    
+
+    def _backfill_all_hubs(self, progress_df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+        """Ensure every hub group in all_hubs_df is present, filling missing ones with zeros."""
+        all_groups = self.all_hubs_df[[group_col]].drop_duplicates()
+        n_before = len(progress_df)
+
+        merged = all_groups.merge(progress_df, on=group_col, how='left')
+        zero_fill = {
+            'total_projects': 0,
+            'current_weighted_sum': 0,
+            'max_possible_sum': 0,
+            'unique_statuses': 0,
+            'status_progress_pct': 0,
+        }
+        merged = merged.fillna({k: v for k, v in zero_fill.items() if k in merged.columns})
+        for int_col in ('total_projects', 'unique_statuses'):
+            if int_col in merged.columns:
+                merged[int_col] = merged[int_col].astype(int)
+
+        n_added = len(merged) - n_before
+        if n_added > 0:
+            print(f"✓ Backfilled {n_added:,} hub groups with 0 projects (total: {len(merged):,})")
+        return merged
+
     def get_status_zero_projects(self) -> Optional[pd.DataFrame]:
         """
         Get projects with status weight = 0 (not started or unknown status).
@@ -562,10 +811,10 @@ def fix_scn_year_dtype(df: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 
 if __name__ == "__main__":
-    print("Hub Project Status Calculator - Fixed Version")
+    print("Hub Project Status Calculator")
     print("=" * 50)
     print("\nUsage:")
-    print("  from hub_project_status_calculator_fixed import HubProjectStatusPipeline, load_hub_csv")
+    print("  from huburgency import HubProjectStatusPipeline, load_hub_csv")
     print("  ")
     print("  # Load data with automatic list parsing")
     print("  hub_df = load_hub_csv('hubs_with_uids.csv')")
@@ -574,8 +823,8 @@ if __name__ == "__main__":
     print("  ")
     print("  # Run pipeline")
     print("  pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)")
-    print("  joined_df, progress_df = pipeline.run()")
+    print("  joined_df, progress_df, status_breakdown_df = pipeline.run()")
     print()
     print("Or use the quick fix on existing data:")
-    print("  from hub_project_status_calculator_fixed import fix_scn_year_dtype")
+    print("  from huburgency import fix_scn_year_dtype")
     print("  joined_df = fix_scn_year_dtype(joined_df)")

@@ -15,6 +15,9 @@ HubUrgency is a two-part pipeline that:
 - **SOLID Architecture**: Clean, maintainable code following SOLID principles
 - **Hebrew Text Support**: Proper handling of Hebrew text with windows-1255 encoding
 - **Weighted Progress Metrics**: Customizable status weights for accurate progress tracking
+- **Flexible Inputs**: Raw (hub + project tables) or pre-exploded `(group, project_uid)` data
+- **Status Overrides**: Apply manual `Proj_status` corrections without editing source data
+- **Complete Hub Coverage**: Optional all-hubs backfill so hubs with no projects still report (at 0%)
 - **Multiple Output Formats**: CSV outputs with various aggregation levels
 
 ## Quick Start
@@ -26,73 +29,92 @@ HubUrgency is a two-part pipeline that:
 git clone <repository-url>
 cd HubUrgency
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the package (and its dependencies)
+pip install -e .
+
+# Optional extras: notebooks (jupyter/matplotlib) and dev tools (pytest)
+pip install -e ".[notebooks,dev]"
 ```
+
+> The package uses a `src/` layout. After `pip install -e .` it is importable as
+> `huburgency`. Dependencies can alternatively be installed with
+> `pip install -r requirements.txt`.
 
 ### Basic Usage
 
 **Part 1: Link Projects to Hubs**
 ```python
-from src.inventar_hub_linker import InventarHubLinker, ProcessingConfig
+from huburgency import InventarHubLinker, ProcessingConfig
 
 config = ProcessingConfig(
-    hub_csv_path='path/to/hubs.csv',
-    hub_h3_column='h3_8',
-    inventar_point_path='path/to/points.shp',
-    inventar_line_path='path/to/lines.shp',
-    inventar_multiline_path='path/to/multilines.shp'
+    hubs_csv_path='path/to/hubs.csv',
+    inventar_directory='path/to/inventar_shapefiles/',
+    output_csv_path='path/to/output/hubs_with_inventar.csv',
 )
 
 linker = InventarHubLinker(config)
-result_df = linker.run()
+result_df = linker.process()
+
+# Or run and write base/combined/exploded outputs in one call:
+outputs = linker.process_and_save_all_formats()
 ```
 
 **Part 2: Calculate Hub Status**
 ```python
-from src.hub_project_status_calculator import HubProjectStatusPipeline
+import pandas as pd
+from huburgency import HubProjectStatusPipeline, load_hub_csv
 
-pipeline = HubProjectStatusPipeline(
-    hub_csv_path='path/to/hubs_with_uids.csv',
-    project_csv_path='path/to/projects.csv',
-    status_weights_path='path/to/status_weights.csv'
-)
+hub_df = load_hub_csv('path/to/hubs_with_uids.csv')
+project_df = pd.read_csv('path/to/projects.csv', encoding='windows-1255')
+weights_df = pd.read_csv('path/to/status_weights.csv', encoding='windows-1255')
 
-results = pipeline.run()
+pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)
+joined_df, progress_df, status_breakdown_df = pipeline.run()
 ```
 
 ## Project Structure
 
 ```
 HubUrgency/
-├── src/                              # Source code
-│   ├── hub_project_status_calculator.py
-│   ├── inventar_hub_linker.py
-│   └── __init__.py
-├── tests/                            # Unit tests
+├── src/
+│   └── huburgency/                   # Importable package
+│       ├── __init__.py
+│       ├── hub_project_status_calculator.py
+│       └── inventar_hub_linker.py
+├── tests/                            # Unit tests (pytest)
 │   └── test_calculator.py
 ├── notebooks/                        # Jupyter notebooks
 │   ├── Hub_Project_Status_Analysis.ipynb
 │   └── inventar_hub_linker_notebook.ipynb
 ├── docs/                             # Documentation
-│   ├── documentation.md              # Complete technical documentation
-│   ├── USAGE_GUIDE.md               # Usage guide for status calculator
-│   ├── INVENTAR_LINKER_README.md    # Spatial linker documentation
-│   ├── STATUS_ZERO_GUIDE.md         # Analysis guide for cancelled projects
-│   ├── FIX_DOCUMENTATION.md         # Bug fixes and migration guide
-│   └── claude_md_Hubs_Urgency.md    # Technical reference
+│   ├── README.md                     # Documentation index
+│   ├── 01_project_overview.md        # ┐
+│   ├── 02_inputs.md                  # │
+│   ├── 03_process_workflow.md        # ├ Narrative reference (read in order)
+│   ├── 04_model_methodology.md       # │
+│   ├── 05_outputs.md                 # ┘
+│   ├── appendix_a_code_reference.md  # Full code reference
+│   ├── appendix_b_glossary.md        # Glossary & FAQ
+│   ├── USAGE_GUIDE.md                # How-to: status calculator
+│   ├── INVENTAR_LINKER_README.md     # How-to: spatial linker
+│   └── STATUS_ZERO_GUIDE.md          # How-to: cancelled/stalled projects
+├── pyproject.toml                    # Build & packaging metadata
 ├── requirements.txt                  # Python dependencies
+├── LICENSE                           # Proprietary license
 ├── .gitignore                        # Git ignore rules
 └── README.md                         # This file
 ```
 
 ## Documentation
 
-- **[Complete Documentation](docs/documentation.md)**: Comprehensive guide covering architecture, installation, usage, and troubleshooting
-- **[Usage Guide](docs/USAGE_GUIDE.md)**: Detailed usage instructions for the status calculator
-- **[Spatial Linker Guide](docs/INVENTAR_LINKER_README.md)**: Documentation for the spatial linking module
-- **[Status Zero Analysis](docs/STATUS_ZERO_GUIDE.md)**: Guide for analyzing cancelled/stalled projects
-- **[Bug Fixes](docs/FIX_DOCUMENTATION.md)**: Documentation of bug fixes and migrations
+Full documentation lives in **[`docs/`](docs/README.md)** — start with the index.
+
+- **[Documentation Index](docs/README.md)**: Map of the narrative chapters, code reference, and how-to guides
+- **[Project Overview](docs/01_project_overview.md)**: Goal, problem, and conceptual model (chapters 01–05 read in order)
+- **[Code Reference](docs/appendix_a_code_reference.md)**: Every module, class, and function in `src/huburgency/`
+- **[Usage Guide](docs/USAGE_GUIDE.md)**: How to run the status calculator (overrides, pre-exploded input, all-hubs backfill)
+- **[Spatial Linker Guide](docs/INVENTAR_LINKER_README.md)**: How to link projects to hubs (Stage 1)
+- **[Status-Zero Guide](docs/STATUS_ZERO_GUIDE.md)**: Analyzing cancelled/stalled projects
 
 ## Dependencies
 
@@ -100,7 +122,7 @@ HubUrgency/
 - **numpy** (>=1.24.0): Numerical computing
 - **geopandas** (>=0.14.0): Geographic data operations
 - **shapely** (>=2.0.0): Geometric operations
-- **h3** (>=3.7.0): Hexagonal hierarchical spatial indexing
+- **h3** (>=4.0.0): Hexagonal hierarchical spatial indexing
 - **jupyter** (>=1.0.0): Interactive notebooks
 - **matplotlib** (>=3.7.0): Data visualization
 
@@ -160,11 +182,12 @@ pytest tests/test_calculator.py
 
 ## License
 
-[Add license information]
+Proprietary and confidential. Copyright (c) 2026 Ohad Dahan, Ayalon Highways.
+All rights reserved. See [LICENSE](LICENSE) for details.
 
 ## Contact
 
-[Add contact information]
+**Ohad Dahan** — ohad@ayalonhw.co.il (Ayalon Highways)
 
 ## Acknowledgments
 
