@@ -180,6 +180,69 @@ pipeline.calculator = WeightedByYearCalculator(weights_df)
 joined_df, progress_df, status_breakdown_df = pipeline.run()
 ```
 
+## Advanced Features
+
+The pipeline supports three optional capabilities, each available in either input mode.
+
+### Pre-exploded Input Mode
+
+If your data is already exploded to one row per `(group, project_uid)` with a
+`Proj_status` column, skip the internal join entirely:
+
+```python
+from huburgency import HubProjectStatusPipeline, DataLoader
+
+loader = DataLoader()
+hub_project_df = loader.load_csv('Hubs_w_InventarProjects_filtered.csv')
+weights_df = loader.load_csv('status_weights.csv')
+
+pipeline = HubProjectStatusPipeline(
+    status_weights_df=weights_df,
+    hub_project_df=hub_project_df,
+    use_pre_exploded=True,
+)
+joined_df, progress_df, status_breakdown_df = pipeline.run()
+```
+
+Rows with a missing `project_uid` are preserved — they represent hub groups with
+zero intersecting projects and surface in the output at 0% progress.
+
+### Status Overrides
+
+Supply a table with columns `uid` and `Proj_status` to replace the status of
+selected projects before scoring (useful for manual corrections without editing
+the source data):
+
+```python
+override_df = loader.load_csv_if_exists('status_override.csv')  # None if absent
+
+pipeline = HubProjectStatusPipeline(
+    status_weights_df=weights_df,
+    hub_project_df=hub_project_df,
+    status_override_df=override_df,   # ignored if None / empty
+    use_pre_exploded=True,
+)
+```
+
+### Guaranteeing Every Hub Appears (All-Hubs Backfill)
+
+Pass the full hub table as `all_hubs_df`; every group in it is guaranteed to
+appear in `progress_df`, with hubs that have no projects backfilled at 0%:
+
+```python
+all_hubs_df = loader.load_csv('Hubs_w_InventarProjects_combined.csv')
+
+pipeline = HubProjectStatusPipeline(
+    hub_df=hub_df,
+    project_df=project_df,
+    status_weights_df=weights_df,
+    all_hubs_df=all_hubs_df,
+)
+```
+
+These options compose freely and also work in raw mode
+(`hub_df` + `project_df`).
+
 ## Integration with Existing Pipeline
 
 This module integrates with your existing Hub Prioritizing pipeline:

@@ -15,6 +15,9 @@ HubUrgency is a two-part pipeline that:
 - **SOLID Architecture**: Clean, maintainable code following SOLID principles
 - **Hebrew Text Support**: Proper handling of Hebrew text with windows-1255 encoding
 - **Weighted Progress Metrics**: Customizable status weights for accurate progress tracking
+- **Flexible Inputs**: Raw (hub + project tables) or pre-exploded `(group, project_uid)` data
+- **Status Overrides**: Apply manual `Proj_status` corrections without editing source data
+- **Complete Hub Coverage**: Optional all-hubs backfill so hubs with no projects still report (at 0%)
 - **Multiple Output Formats**: CSV outputs with various aggregation levels
 
 ## Quick Start

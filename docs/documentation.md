@@ -164,6 +164,13 @@ pipeline.save_results(
 print(f"Analyzed {len(progress_df)} hubs")
 ```
 
+> **Optional inputs.** `HubProjectStatusPipeline` also accepts
+> `status_override_df` (replace `Proj_status` for selected UIDs before scoring),
+> `all_hubs_df` (guarantee every hub group appears, backfilling hubs with no
+> projects at 0%), and a pre-exploded input via `hub_project_df` +
+> `use_pre_exploded=True`. See the
+> [Usage Guide → Advanced Features](USAGE_GUIDE.md#advanced-features).
+
 ### 3. Analyze Results
 
 ```python

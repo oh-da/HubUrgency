@@ -162,32 +162,55 @@ on construction.
 - `_combine_uids(uid_columns)` / `_explode_uids(df)` — internal steps (per-row
   de-dup; explode + drop empty/null UIDs).
 
-### A.2.6 `StatusProgressCalculator`
+### A.2.6 `StatusOverrideHandler`
+`StatusOverrideHandler(override_df=None)` — optional. Validates
+`REQUIRED_COLS = ['uid','Proj_status']`, coerces `uid` to int, and builds a
+`uid → Proj_status` lookup.
+- `has_overrides() -> bool` — whether any overrides were loaded.
+- `apply_overrides(df, uid_col='project_uid', status_col='Proj_status') -> DataFrame` —
+  returns a copy with statuses replaced for matching UIDs; no-op if empty or the
+  uid column is absent. Used to apply manual status corrections before scoring.
+
+### A.2.7 `PreExplodedDataHandler`
+`PreExplodedDataHandler(df)` — for data already exploded to one row per
+`(group, project_uid)`. Validates `REQUIRED_COLS = ['group','project_uid','Proj_status']`,
+coerces `project_uid` to numeric, drops rows with a missing `group`, and
+de-duplicates on `(group, project_uid)`. Rows with a missing `project_uid` are
+**kept** — they represent hub groups with zero projects.
+- `get_data() -> DataFrame` — the prepared frame.
+
+### A.2.8 `StatusProgressCalculator`
 `StatusProgressCalculator(status_weights_df)` — validates
 `REQUIRED_WEIGHT_COLS = ['Proj_status','weight']`, builds the
 `Proj_status(str) → weight` lookup, and records `max(weight)`.
 - `calculate_hub_progress(hub_projects_df, group_col='group') -> DataFrame` —
-  maps status→weight, ensures numeric types, groups by hub and computes
-  `total_projects`, `current_weighted_sum`, `max_possible_sum`,
-  `unique_statuses`, and `status_progress_pct`.
+  flags real projects vs zero-project placeholders (via the `uid`/`project_uid`
+  column), maps status→weight, groups by hub and computes `total_projects`,
+  `current_weighted_sum`, `max_possible_sum`, `unique_statuses`, and
+  `status_progress_pct` (clipped to 0–100; hubs with 0 projects → 0%).
 - `calculate_status_breakdown(hub_projects_df, group_col='group') -> DataFrame` —
   pivots `group × Proj_status` into `num_proj_status_X` columns plus
-  `total_projects`.
-- `_map_status_to_weight(df)` — adds `status_weight`; unmapped → 0 with a warning.
-- `_prepare_for_aggregation(df)` — coerces `status_weight` numeric and
-  `Proj_status` string.
+  `total_projects`; placeholder rows are excluded.
+- `_project_id_column(df)` — returns `'uid'`, `'project_uid'`, or `None`.
+- `_map_status_to_weight(df)` — adds `status_weight`; unmapped → 0 with a warning
+  (used by `get_status_zero_projects`).
 
-### A.2.7 `HubProjectStatusPipeline` (facade)
-`HubProjectStatusPipeline(hub_df, project_df, status_weights_df)` — injects a
-`ProjectDataJoiner` and a `StatusProgressCalculator` (Dependency Inversion).
+### A.2.9 `HubProjectStatusPipeline` (facade)
+`HubProjectStatusPipeline(hub_df=None, project_df=None, status_weights_df=None, status_override_df=None, all_hubs_df=None, hub_project_df=None, use_pre_exploded=False)`.
+Backward compatible: positional `(hub_df, project_df, status_weights_df)` runs in
+raw mode. Set `use_pre_exploded=True` with `hub_project_df` to skip the join.
+Optional `status_override_df` and `all_hubs_df` apply in either mode.
 - `run(uid_columns=None, group_col='group') -> (joined_df, progress_df, status_breakdown_df)` —
-  executes join → progress → breakdown; stores each on the instance.
+  obtain/explode data → apply overrides → progress → all-hubs backfill →
+  breakdown; stores each on the instance.
+- `_backfill_all_hubs(progress_df, group_col)` — left-joins `all_hubs_df`'s groups
+  so every hub appears, zero-filling missing metrics.
 - `get_status_zero_projects() -> Optional[DataFrame]` — rows with
   `status_weight == 0`; maps weights first if needed; `None` before `run()`.
 - `save_results(joined_path, progress_path, status_breakdown_path=None, status_zero_path=None, encoding='windows-1255')` —
   writes the outputs; creates parent dirs; raises if `run()` hasn't executed.
 
-### A.2.8 `fix_scn_year_dtype(df) -> DataFrame`
+### A.2.10 `fix_scn_year_dtype(df) -> DataFrame`
 Module-level quick fix: coerces `scn_year` to numeric on an existing DataFrame.
 Superseded by `DataTypeHandler` inside the pipeline; kept for ad-hoc use.
 
@@ -200,11 +223,14 @@ project, and status-weight data is built in-memory via fixtures, so no external
 CSV files are required. Run with `pytest tests/` (or just `pytest`) from the
 repository root. Coverage includes:
 - `ListColumnParser` parsing of string/list/empty/None inputs.
-- Pipeline execution returning `(joined_df, progress_df, status_breakdown_df)`.
+- Pipeline execution (raw mode) returning `(joined_df, progress_df, status_breakdown_df)`.
 - A numeric correctness check of `status_progress_pct`.
 - Per-group UID deduplication.
 - Validation errors for missing project columns and unmapped statuses.
 - `get_hubs_with_projects` filtering (regression test for the operator-precedence fix).
+- `StatusOverrideHandler` applying overrides, and override propagation through the pipeline.
+- Pre-exploded input mode (`PreExplodedDataHandler`), including preservation of zero-project hubs.
+- All-hubs backfill ensuring every group appears at 0% when it has no projects.
 
 ---
 

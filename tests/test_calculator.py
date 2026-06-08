@@ -14,6 +14,8 @@ from huburgency import (
     HubProjectStatusPipeline,
     ProjectDataJoiner,
     StatusProgressCalculator,
+    StatusOverrideHandler,
+    PreExplodedDataHandler,
     ListColumnParser,
     get_hubs_with_projects,
 )
@@ -192,3 +194,114 @@ def test_get_hubs_with_projects_filters_empty_rows():
     # Only the first two rows have at least one intersecting project.
     assert len(filtered) == 2
     assert list(filtered.index) == [0, 1]
+
+
+# =============================================================================
+# Status overrides
+# =============================================================================
+
+def test_status_override_handler_applies_overrides():
+    handler = StatusOverrideHandler(pd.DataFrame({
+        'uid': [1, 2],
+        'Proj_status': [4, 0],
+    }))
+    df = pd.DataFrame({
+        'project_uid': [1, 2, 3],
+        'Proj_status': [0, 0, 2],
+    })
+    result = handler.apply_overrides(df, uid_col='project_uid')
+    assert result['Proj_status'].tolist() == [4, 0, 2]  # uid 3 unchanged
+
+
+def test_status_override_missing_column_raises():
+    with pytest.raises(ValueError):
+        StatusOverrideHandler(pd.DataFrame({'uid': [1]}))  # no Proj_status
+
+
+def test_pipeline_applies_status_override(weights_df):
+    # Single project at status 0 (weight 0) -> overridden to status 4 (weight 4) -> 100%.
+    hub_project_df = pd.DataFrame({
+        'group': [100],
+        'project_uid': [1],
+        'Proj_status': [0],
+    })
+    override_df = pd.DataFrame({'uid': [1], 'Proj_status': [4]})
+    pipeline = HubProjectStatusPipeline(
+        status_weights_df=weights_df,
+        hub_project_df=hub_project_df,
+        status_override_df=override_df,
+        use_pre_exploded=True,
+    )
+    _, progress_df, _ = pipeline.run()
+    assert progress_df.loc[progress_df['group'] == 100, 'status_progress_pct'].iloc[0] == pytest.approx(100.0)
+
+
+# =============================================================================
+# Pre-exploded input mode
+# =============================================================================
+
+def test_pre_exploded_handler_preserves_zero_project_hubs():
+    df = pd.DataFrame({
+        'group': [100, 100, 200],
+        'project_uid': [1, 2, None],   # group 200 has no projects
+        'Proj_status': [1, 2, None],
+    })
+    prepared = PreExplodedDataHandler(df).get_data()
+    assert set(prepared['group']) == {100, 200}
+    assert prepared['project_uid'].isna().sum() == 1
+
+
+def test_pre_exploded_pipeline_runs(weights_df):
+    hub_project_df = pd.DataFrame({
+        'group': [100, 100, 200],
+        'project_uid': [1, 2, 3],
+        'Proj_status': [1, 2, 3],
+    })
+    pipeline = HubProjectStatusPipeline(
+        status_weights_df=weights_df,
+        hub_project_df=hub_project_df,
+        use_pre_exploded=True,
+    )
+    joined_df, progress_df, _ = pipeline.run()
+    assert len(progress_df) == 2
+    # group 100: weights 1+2 = 3 over 2*4 = 8 -> 37.5%
+    assert progress_df.loc[progress_df['group'] == 100, 'status_progress_pct'].iloc[0] == pytest.approx(37.5)
+
+
+def test_pre_exploded_requires_hub_project_df(weights_df):
+    with pytest.raises(ValueError):
+        HubProjectStatusPipeline(status_weights_df=weights_df, use_pre_exploded=True)
+
+
+# =============================================================================
+# All-hubs backfill (zero-project hubs)
+# =============================================================================
+
+def test_all_hubs_backfill_includes_zero_project_hubs(weights_df):
+    hub_project_df = pd.DataFrame({
+        'group': [100],
+        'project_uid': [1],
+        'Proj_status': [2],
+    })
+    all_hubs_df = pd.DataFrame({'group': [100, 200, 300]})
+    pipeline = HubProjectStatusPipeline(
+        status_weights_df=weights_df,
+        hub_project_df=hub_project_df,
+        all_hubs_df=all_hubs_df,
+        use_pre_exploded=True,
+    )
+    _, progress_df, _ = pipeline.run()
+
+    assert set(progress_df['group']) == {100, 200, 300}
+    # Backfilled hubs report 0 projects and 0% progress.
+    for g in (200, 300):
+        row = progress_df[progress_df['group'] == g].iloc[0]
+        assert row['total_projects'] == 0
+        assert row['status_progress_pct'] == 0
+
+
+def test_raw_mode_still_returns_three_frames(hub_df, project_df, weights_df):
+    """Backward-compat: positional raw-mode construction is unchanged."""
+    pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)
+    result = pipeline.run()
+    assert len(result) == 3

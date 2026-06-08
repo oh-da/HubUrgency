@@ -32,6 +32,8 @@ from .hub_project_status_calculator import (
     ListColumnParser,
     ProjectDataJoiner,
     StatusProgressCalculator,
+    StatusOverrideHandler,
+    PreExplodedDataHandler,
     load_hub_csv,
     fix_scn_year_dtype,
 )
@@ -54,6 +56,8 @@ __all__ = [
     "ListColumnParser",
     "ProjectDataJoiner",
     "StatusProgressCalculator",
+    "StatusOverrideHandler",
+    "PreExplodedDataHandler",
     "load_hub_csv",
     "fix_scn_year_dtype",
 ]
