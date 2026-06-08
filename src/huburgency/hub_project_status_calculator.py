@@ -562,10 +562,10 @@ def fix_scn_year_dtype(df: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 
 if __name__ == "__main__":
-    print("Hub Project Status Calculator - Fixed Version")
+    print("Hub Project Status Calculator")
     print("=" * 50)
     print("\nUsage:")
-    print("  from hub_project_status_calculator_fixed import HubProjectStatusPipeline, load_hub_csv")
+    print("  from huburgency import HubProjectStatusPipeline, load_hub_csv")
     print("  ")
     print("  # Load data with automatic list parsing")
     print("  hub_df = load_hub_csv('hubs_with_uids.csv')")
@@ -574,8 +574,8 @@ if __name__ == "__main__":
     print("  ")
     print("  # Run pipeline")
     print("  pipeline = HubProjectStatusPipeline(hub_df, project_df, weights_df)")
-    print("  joined_df, progress_df = pipeline.run()")
+    print("  joined_df, progress_df, status_breakdown_df = pipeline.run()")
     print()
     print("Or use the quick fix on existing data:")
-    print("  from hub_project_status_calculator_fixed import fix_scn_year_dtype")
+    print("  from huburgency import fix_scn_year_dtype")
     print("  joined_df = fix_scn_year_dtype(joined_df)")
