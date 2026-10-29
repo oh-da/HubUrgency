@@ -85,6 +85,12 @@ Stage 2 for the files in a folder (see `discover_inputs`), applies the optional
 `notebooks/Hub_Urgency_End_to_End.ipynb` calls. With `make_report=True` (default) it
 also writes `hub_urgency_map.html` and `hub_urgency_report.html`.
 
+`link_only=True` stops after Stage 1 (no weights needed); `result.progress_df` and the other
+Stage 2 fields are then `None`. In every run, `build_project_hub_links()` /
+`build_overrides_template()` produce `project_hub_links.csv` and
+`status_overrides_template.csv` right after Stage 1 (`result.links_df`,
+`result.overrides_template_df`).
+
 ### A.1.8a `report` module
 `build_map(result, path)` (folium/Leaflet map of hub H3 cells and project geometries),
 `build_report(result, path)` (self-contained HTML) and `export_report(result, map_path,

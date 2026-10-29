@@ -57,6 +57,8 @@ OUT_PROGRESS = 'hub_progress.csv'
 OUT_BREAKDOWN = 'hub_status_breakdown.csv'
 OUT_STATUS_ZERO = 'status_zero_projects.csv'
 OUT_WEIGHTS_TEMPLATE = 'status_weights_template.csv'
+OUT_LINKS = 'project_hub_links.csv'
+OUT_OVERRIDES_TEMPLATE = 'status_overrides_template.csv'
 OUT_MAP = 'hub_urgency_map.html'
 OUT_REPORT = 'hub_urgency_report.html'
 
@@ -298,6 +300,68 @@ def apply_status_overrides(
 
 
 # =============================================================================
+# Project <-> hub review tables (written after Stage 1, before scoring)
+# =============================================================================
+
+LINK_COLUMNS = ['uid', 'proj_name', 'main_type', 'Proj_status', 'group', 'HubNameHE',
+                'intersecting_h3', 'n_intersecting_cells']
+
+
+def build_project_hub_links(
+    exploded_df: pd.DataFrame, project_df: pd.DataFrame, group_col: str = 'group'
+) -> pd.DataFrame:
+    """
+    One row per (project UID, hub group) with the H3 cells of that hub the project touches.
+
+    Built from the Stage 1 exploded table (one row per H3 cell and project). The
+    ``intersecting_h3`` column is a Python list, written the same way as the hubs CSV's
+    ``h3_index``. Projects touching no hub do not appear. ``Proj_status`` is the
+    current status (manual overrides already applied).
+    """
+    links = exploded_df.dropna(subset=['project_uid']).copy()
+    links['uid'] = pd.to_numeric(links['project_uid'], errors='coerce')
+    links = links.dropna(subset=['uid'])
+    links['uid'] = links['uid'].astype('int64')
+    if 'HubNameHE' not in links.columns:
+        links['HubNameHE'] = ''
+
+    grouped = (
+        links.groupby(['uid', group_col], sort=True)
+        .agg(HubNameHE=('HubNameHE', 'first'),
+             intersecting_h3=('h3_index', lambda cells: list(dict.fromkeys(cells))))
+        .reset_index()
+        .rename(columns={group_col: 'group'})
+    )
+    grouped['n_intersecting_cells'] = grouped['intersecting_h3'].map(len)
+
+    attrs = project_df[['uid', 'proj_name', 'main_type', 'Proj_status']]
+    result = grouped.merge(attrs, on='uid', how='left')
+    return result[LINK_COLUMNS]
+
+
+def build_overrides_template(links_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ready-to-edit overrides table: one row per linked project.
+
+    Edit ``Proj_status`` for the projects to change and save the file as
+    ``status_overrides.csv``; rows left unchanged are no-ops and the extra columns
+    are ignored when the file is read.
+    """
+    labelled = links_df.assign(
+        hub_label=links_df['group'].astype(str) + ' ' + links_df['HubNameHE'].fillna('').astype(str)
+    )
+    per_uid = labelled.groupby('uid', sort=True)
+    template = per_uid.agg(
+        Proj_status=('Proj_status', 'first'),
+        proj_name=('proj_name', 'first'),
+        main_type=('main_type', 'first'),
+        n_hubs=('group', 'size'),
+        hubs=('hub_label', lambda labels: '; '.join(label.strip() for label in labels)),
+    ).reset_index()
+    return template[['uid', 'Proj_status', 'proj_name', 'main_type', 'n_hubs', 'hubs']]
+
+
+# =============================================================================
 # Orchestration
 # =============================================================================
 
@@ -308,12 +372,15 @@ class WorkflowResult:
     inputs: WorkflowInputs
     output_dir: Path
     project_df: pd.DataFrame
-    weights_df: pd.DataFrame
     linker_outputs: Dict[str, pd.DataFrame]
-    joined_df: pd.DataFrame
-    progress_df: pd.DataFrame
-    status_breakdown_df: pd.DataFrame
-    status_zero_df: Optional[pd.DataFrame]
+    links_df: pd.DataFrame
+    overrides_template_df: pd.DataFrame
+    # Stage 2 results: None after a ``link_only`` run.
+    weights_df: Optional[pd.DataFrame] = None
+    joined_df: Optional[pd.DataFrame] = None
+    progress_df: Optional[pd.DataFrame] = None
+    status_breakdown_df: Optional[pd.DataFrame] = None
+    status_zero_df: Optional[pd.DataFrame] = None
     config: Optional[ProcessingConfig] = None
     group_col: str = 'group'
     unmapped_statuses: List[str] = field(default_factory=list)
@@ -374,6 +441,7 @@ def run_end_to_end(
     encoding: str = 'windows-1255',
     group_col: str = 'group',
     make_report: bool = True,
+    link_only: bool = False,
 ) -> WorkflowResult:
     """
     Run Stage 1 and Stage 2 for the files in ``input_dir``; write CSVs to ``output_dir``.
@@ -390,6 +458,15 @@ def run_end_to_end(
         group_col: hub id column.
         make_report: also write ``hub_urgency_map.html`` and ``hub_urgency_report.html``
             (the map is skipped with a warning if ``folium`` is not installed).
+        link_only: stop after Stage 1: write the Stage 1 CSVs, ``project_hub_links.csv``
+            and ``status_overrides_template.csv``, but do not score. Needs no
+            status weights file.
+
+    Always written after Stage 1 (before scoring):
+        ``project_hub_links.csv``: one row per (project uid, hub group) with
+        ``HubNameHE`` and the H3 cells the project touches;
+        ``status_overrides_template.csv``: one row per linked project, ready to edit
+        and save as ``status_overrides.csv``.
 
     Raises:
         FileNotFoundError: when ``status_weights.csv`` is missing. A pre-filled
@@ -429,26 +506,48 @@ def run_end_to_end(
     template = build_weights_template(project_df['Proj_status'])
     outputs['weights_template'] = _save_csv(template, output_dir / OUT_WEIGHTS_TEMPLATE, 'utf-8-sig')
 
-    if not inputs.status_weights_csv.exists():
+    weights_df = None
+    unmapped: List[str] = []
+    if not link_only and not inputs.status_weights_csv.exists():
         raise FileNotFoundError(
             f"Status weights file not found: {inputs.status_weights_csv}\n"
             f"A template with the {len(template)} statuses in your data was written to "
             f"{outputs['weights_template']}. Review the weights, save it as "
             f"'{inputs.status_weights_csv.name}' in the input folder and run again."
         )
-    weights_df = load_status_weights(inputs.status_weights_csv)
-    unmapped = sorted(set(project_df['Proj_status'].dropna()) - set(weights_df['Proj_status']))
-    if unmapped:
-        logger.warning(
-            f"Statuses with no weight (counted as 0): {unmapped}. "
-            f"Add them to {inputs.status_weights_csv.name}."
-        )
+    if not link_only:
+        weights_df = load_status_weights(inputs.status_weights_csv)
+        unmapped = sorted(set(project_df['Proj_status'].dropna()) - set(weights_df['Proj_status']))
+        if unmapped:
+            logger.warning(
+                f"Statuses with no weight (counted as 0): {unmapped}. "
+                f"Add them to {inputs.status_weights_csv.name}."
+            )
 
     # --- Stage 1 ---
     linker_outputs = InventarHubLinker(config).process_and_save_all_formats()
     for key, suffix in (('base', ''), ('combined', '_combined'), ('exploded', '_exploded')):
         outputs[f'linker_{key}'] = config.output_csv_path.with_stem(
             f"{config.output_csv_path.stem}{suffix}"
+        )
+
+    # --- Mid-run review files: which hubs / H3 cells does each project touch? ---
+    links_df = build_project_hub_links(linker_outputs['exploded'], project_df, group_col)
+    overrides_template_df = build_overrides_template(links_df)
+    outputs['project_hub_links'] = _save_csv(links_df, output_dir / OUT_LINKS, encoding)
+    outputs['overrides_template'] = _save_csv(
+        overrides_template_df, output_dir / OUT_OVERRIDES_TEMPLATE, encoding)
+    logger.info(f"Wrote {len(links_df):,} project-hub rows ({links_df['uid'].nunique():,} projects) "
+                f"to {OUT_LINKS} and an overrides template to {OUT_OVERRIDES_TEMPLATE}")
+
+    if link_only:
+        logger.info("link_only: stopping before scoring")
+        return WorkflowResult(
+            inputs=inputs, output_dir=output_dir, project_df=project_df,
+            linker_outputs=linker_outputs, links_df=links_df,
+            overrides_template_df=overrides_template_df, config=config, group_col=group_col,
+            unknown_override_uids=unknown_override_uids, n_overridden=n_overridden,
+            outputs=outputs,
         )
 
     # --- Stage 2 (pre-exploded mode: one row per hub x project, deduplicated) ---
@@ -494,8 +593,10 @@ def run_end_to_end(
         inputs=inputs,
         output_dir=output_dir,
         project_df=project_df,
-        weights_df=weights_df,
         linker_outputs=linker_outputs,
+        links_df=links_df,
+        overrides_template_df=overrides_template_df,
+        weights_df=weights_df,
         joined_df=joined_df,
         progress_df=progress_df,
         status_breakdown_df=breakdown_df,
