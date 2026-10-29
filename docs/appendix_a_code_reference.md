@@ -62,11 +62,29 @@ without touching the orchestrator.
 `load()` reads the shapefile into a GeoDataFrame; if the file is missing it logs a
 warning and returns an **empty** GeoDataFrame (run continues).
 
-### A.1.6 `InventarLoaderFactory`
-`create_all_loaders() -> Dict[str, GeometryLoader]` — builds the three
-`ShapefileLoader`s keyed `'points'`, `'lines'`, `'multilines'`.
+### A.1.6 `GeoJSONSource` / `GeoJSONLoader`
+`GeoJSONSource(filepath)` reads a single GeoJSON inventar once (cached), requires a
+`uid` property, reprojects to EPSG:4326 if the file declares another CRS and drops
+unsupported geometries (e.g. polygons) with a warning. `layer(name)` returns the
+features of one layer (`points` = Point/MultiPoint, `lines` = LineString,
+`multilines` = MultiLineString); `attributes()` returns all properties without
+geometry. `GeoJSONLoader(source, name)` implements `GeometryLoader` on top of it.
 
-### A.1.7 `H3PolygonConverter`
+### A.1.7 `InventarLoaderFactory`
+`create_all_loaders() -> Dict[str, GeometryLoader]` — returns loaders keyed
+`'points'`, `'lines'`, `'multilines'`. Source selection: `ProcessingConfig.inventar_file`
+(GeoJSON) if set → the shapefiles if any exist in `inventar_directory` → a single
+`*.geojson`/`*.json` in that directory (several raise a `ValueError`).
+`load_inventar_attributes(config)` returns the project attribute table embedded in
+the inventar (GeoJSON properties / shapefile attributes).
+
+### A.1.8 `workflow.run_end_to_end`
+`run_end_to_end(input_dir, output_dir, ...) -> WorkflowResult` runs Stage 1 and
+Stage 2 for the files in a folder (see `discover_inputs`), applies the optional
+`status_overrides.csv`, and writes all CSVs to `output_dir`. This is what
+`notebooks/Hub_Urgency_End_to_End.ipynb` calls.
+
+### A.1.9 `H3PolygonConverter`
 - `convert(h3_index) -> Optional[Polygon]` *(static)* — converts an H3 index to a
   Shapely `Polygon` in WGS84, swapping H3's `(lat, lon)` to Shapely's `(lon, lat)`.
   Returns `None` on failure.

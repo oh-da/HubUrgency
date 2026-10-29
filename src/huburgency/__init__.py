@@ -7,6 +7,7 @@ for transit hubs using H3 hexagonal grid spatial intersection.
 Modules:
     inventar_hub_linker: Links infrastructure projects to transit hubs using spatial intersection
     hub_project_status_calculator: Calculates weighted project status progress for hubs
+    workflow: Runs both stages from an input folder to an output folder
 """
 
 __version__ = "1.0.0"
@@ -19,6 +20,9 @@ from .inventar_hub_linker import (
     H3ListParser,
     HubDataLoader,
     InventarLoaderFactory,
+    GeoJSONSource,
+    GeoJSONLoader,
+    load_inventar_attributes,
     H3PolygonConverter,
     SpatialIntersector,
     link_inventar_to_hubs,
@@ -38,6 +42,13 @@ from .hub_project_status_calculator import (
     fix_scn_year_dtype,
 )
 
+from .workflow import (
+    run_end_to_end,
+    discover_inputs,
+    WorkflowInputs,
+    WorkflowResult,
+)
+
 __all__ = [
     # Spatial Linker
     "InventarHubLinker",
@@ -45,6 +56,9 @@ __all__ = [
     "H3ListParser",
     "HubDataLoader",
     "InventarLoaderFactory",
+    "GeoJSONSource",
+    "GeoJSONLoader",
+    "load_inventar_attributes",
     "H3PolygonConverter",
     "SpatialIntersector",
     "link_inventar_to_hubs",
@@ -60,4 +74,9 @@ __all__ = [
     "PreExplodedDataHandler",
     "load_hub_csv",
     "fix_scn_year_dtype",
+    # End-to-end workflow
+    "run_end_to_end",
+    "discover_inputs",
+    "WorkflowInputs",
+    "WorkflowResult",
 ]
