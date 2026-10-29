@@ -71,6 +71,10 @@ class HubUrgencyUI:
         self._project_data = w.Text(value='data.csv', description='Project data:')
         self._encoding = w.Dropdown(options=['windows-1255', 'utf-8-sig'], value='windows-1255',
                                     description='Encoding:')
+        self._link_only = w.Checkbox(
+            value=False, indent=False,
+            description='Link only: stop after project_hub_links.csv + status_overrides_template.csv '
+                        '(no scoring, no weights file needed)')
         self._report = w.Checkbox(value=True, description='Write map + report (HTML)', indent=False)
         self._preview_map = w.Checkbox(value=False, description='Preview the map inside the notebook '
                                        '(makes the notebook file larger)', indent=False)
@@ -90,7 +94,7 @@ class HubUrgencyUI:
         parts = [header, self._in, self._out]
         if self._subfolder is not None:
             parts.append(self._subfolder)
-        parts += [accordion, self._run, self.out]
+        parts += [self._link_only, accordion, self._run, self.out]
         self.widget = w.VBox(parts)
         if show:
             from IPython.display import display
@@ -144,6 +148,7 @@ class HubUrgencyUI:
                         project_data_csv=self._project_data.value.strip() or 'data.csv',
                         encoding=self._encoding.value,
                         make_report=self._report.value,
+                        link_only=self._link_only.value,
                     )
                 except Exception as exc:  # shown in the form instead of a traceback wall
                     self.error = exc
@@ -168,6 +173,13 @@ class HubUrgencyUI:
 
     @staticmethod
     def summary_html(result: WorkflowResult) -> str:
+        files = ''.join(f"<li>{escape(k)}: <code>{escape(str(v))}</code></li>"
+                        for k, v in result.outputs.items())
+        if result.progress_df is None:  # link_only run
+            return (f"<b>✓ Linking done</b> (scoring skipped): {result.links_df['uid'].nunique():,} projects in "
+                    f"{len(result.links_df):,} project-hub rows. Edit <code>status_overrides_template.csv</code>, "
+                    f"save it as <code>status_overrides.csv</code> in the input folder and run again."
+                    f"<details><summary>Output files</summary><ul>{files}</ul></details>")
         progress = result.progress_df
         lines = [
             f"<b>✓ Done.</b> {len(progress):,} hubs "
@@ -179,8 +191,6 @@ class HubUrgencyUI:
         if result.unknown_override_uids:
             lines.append(f"⚠ Override UIDs not in the project data (ignored): "
                          f"{', '.join(map(str, result.unknown_override_uids))}")
-        files = ''.join(f"<li>{escape(k)}: <code>{escape(str(v))}</code></li>"
-                        for k, v in result.outputs.items())
         return '<br>'.join(lines) + f'<details><summary>Output files</summary><ul>{files}</ul></details>'
 
 

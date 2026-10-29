@@ -45,7 +45,9 @@ pip install -e ".[notebooks,dev]"
 Open `notebooks/Hub_Urgency_Interactive.ipynb` and pick the two folders in the form
 (folder pickers + **Run** button), or `notebooks/Hub_Urgency_End_to_End.ipynb` and set
 `INPUT_DIR` / `OUTPUT_DIR` in a cell. Both run everything and finish by writing an
-HTML report and an interactive map to the output folder. Or from Python:
+HTML report and an interactive map to the output folder. Right after linking, they also write
+`project_hub_links.csv` (project UID → hub `group`, `HubNameHE`, touched H3 cells) and
+`status_overrides_template.csv` (edit it, save as `status_overrides.csv`); `link_only=True` stops there. Or from Python:
 
 ```python
 from huburgency import run_end_to_end

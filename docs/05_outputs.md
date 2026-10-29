@@ -116,6 +116,8 @@ per_hub["status_zero_pct"] = 100 * per_hub["status_zero_count"] / per_hub["total
 | File | Content |
 |------|---------|
 | `hubs_with_inventar[_combined/_exploded].csv` | Stage 1 outputs (5.1) |
+| `project_hub_links.csv` | **written right after Stage 1, before scoring.** One row per (project `uid`, hub `group`): `proj_name`, `main_type`, current `Proj_status`, `group`, `HubNameHE`, `intersecting_h3` (Python list of the hub's H3 cells the project touches, same notation as the hubs CSV's `h3_index`) and `n_intersecting_cells`. A project touching several hubs has several rows; projects touching no hub are absent |
+| `status_overrides_template.csv` | **written with the file above.** One row per linked project: `uid`, `Proj_status` (current), `proj_name`, `main_type`, `n_hubs`, `hubs` (e.g. `12 Hub A; 15 Hub B`). Edit `Proj_status`, save as `status_overrides.csv` in the input folder and re-run; unchanged rows are no-ops and the extra columns are ignored |
 | `hub_project_joined.csv` | one row per (hub, project) with final status; adds `Proj_status_original` and `status_overridden` |
 | `hub_progress.csv` | per-hub progress (5.2.2) plus `x`, `y`, `HubNameHE` |
 | `hub_status_breakdown.csv` | project counts per status (5.2.3) |
@@ -127,6 +129,12 @@ per_hub["status_zero_pct"] = 100 * per_hub["status_zero_count"] / per_hub["total
 The map is a normal HTML file: it loads Leaflet and the basemap from the internet,
 so it needs a connection when opened (the hub and project data are embedded).
 Pass `make_report=False` to skip the two HTML files.
+
+**Building the status overrides.** Run with `link_only=True` (the *Link only* checkbox in the
+interactive notebook, `LINK_ONLY` in the other one): the run stops right after Stage 1 and
+needs no weights file. Open `project_hub_links.csv` to see which hubs and H3 cells each project
+touches, change `Proj_status` in `status_overrides_template.csv`, save it as
+`status_overrides.csv` in the input folder and run again without `link_only`.
 
 ## 5.4 Quick analysis recipes
 

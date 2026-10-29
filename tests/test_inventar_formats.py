@@ -343,3 +343,105 @@ def test_ui_reports_errors_instead_of_raising(geojson_folder, tmp_path):
     assert ui.run() is None
     assert isinstance(ui.error, FileNotFoundError)
     assert (tmp_path / 'status_weights_template.csv').exists()
+
+
+# =============================================================================
+# Project-hub review files (written after Stage 1) and link-only mode
+# =============================================================================
+
+def _read(path):
+    return pd.read_csv(path, encoding='windows-1255')
+
+
+def test_project_hub_links_one_row_per_project_and_hub(geojson_folder, tmp_path):
+    import ast
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out, make_report=False)
+
+    links = _read(out / 'project_hub_links.csv')
+    assert list(links.columns) == ['uid', 'proj_name', 'main_type', 'Proj_status', 'group',
+                                   'HubNameHE', 'intersecting_h3', 'n_intersecting_cells']
+    assert links['uid'].tolist() == [1, 2, 3]            # hub 3 has no project, polygon excluded
+    assert links['group'].tolist() == [1, 1, 2]
+    assert links['HubNameHE'].tolist() == ['מרכז', 'מרכז', 'צפון']
+    assert links['Proj_status'].tolist() == ['ביצוע', 'תכנון מפורט', '?']
+    cells = [ast.literal_eval(v) for v in links['intersecting_h3']]
+    assert cells == [[_cell(PT)], [_cell(ML)], [_cell(LN)]]
+    assert links['n_intersecting_cells'].tolist() == [1, 1, 1]
+    assert result.outputs['project_hub_links'] == out / 'project_hub_links.csv'
+
+
+def test_project_hub_links_project_touching_several_hubs_and_cells(geojson_folder, tmp_path):
+    import ast
+    a = _cell(PT)
+    b = h3.grid_ring(a, 1)[0]
+    c = h3.grid_ring(a, 2)[0]                            # not touched by the line
+    la, lb = h3.cell_to_latlng(a), h3.cell_to_latlng(b)
+    feats = _features()
+    long_line = gpd.GeoDataFrame(
+        [{'uid': 5, 'proj_name': 'ארוך', 'main_type': 'רכבת', 'Proj_status': 'ביצוע', 'scn_year': '2040'}],
+        geometry=[LineString([(la[1], la[0]), (lb[1], lb[0])])], crs='EPSG:4326')
+    pd.concat([feats, long_line], ignore_index=True).to_file(geojson_folder / 'layer.geojson', driver='GeoJSON')
+    pd.DataFrame([
+        {'group': 7, 'x': 0, 'y': 0, 'HubNameHE': 'א', 'h3_index': str([a, b, c])},
+        {'group': 8, 'x': 0, 'y': 0, 'HubNameHE': 'ב', 'h3_index': str([b])},
+    ]).to_csv(geojson_folder / 'hubs.csv', index=False, encoding='windows-1255')
+
+    out = tmp_path / 'out'
+    run_end_to_end(geojson_folder, out, make_report=False)
+    links = _read(out / 'project_hub_links.csv')
+    p5 = links[links['uid'] == 5].set_index('group')
+    assert set(p5.index) == {7, 8}
+    assert set(ast.literal_eval(p5.loc[7, 'intersecting_h3'])) == {a, b}
+    assert p5.loc[7, 'n_intersecting_cells'] == 2
+    assert ast.literal_eval(p5.loc[8, 'intersecting_h3']) == [b]
+    template = _read(out / 'status_overrides_template.csv').set_index('uid')
+    assert template.loc[5, 'n_hubs'] == 2 and template.loc[5, 'hubs'] == '7 א; 8 ב'
+
+
+def test_overrides_template_round_trips_as_overrides_file(geojson_folder, tmp_path):
+    out = tmp_path / 'out'
+    run_end_to_end(geojson_folder, out, make_report=False)
+    template = _read(out / 'status_overrides_template.csv')
+    assert list(template.columns) == ['uid', 'Proj_status', 'proj_name', 'main_type', 'n_hubs', 'hubs']
+    assert template['uid'].tolist() == [1, 2, 3]
+
+    # Edit one status, save as status_overrides.csv, run again.
+    template.loc[template['uid'] == 2, 'Proj_status'] = 'ביצוע'
+    template.to_csv(geojson_folder / 'status_overrides.csv', index=False, encoding='utf-8-sig')
+    result = run_end_to_end(geojson_folder, tmp_path / 'out2', make_report=False)
+    assert result.n_overridden == 1                       # unchanged rows are no-ops
+    assert result.unknown_override_uids == []
+    assert _progress(result) == {1: 100.0, 2: 0.0, 3: 0.0}
+
+
+def test_link_only_stops_before_scoring_and_needs_no_weights(geojson_folder, tmp_path):
+    (geojson_folder / 'status_weights.csv').unlink()
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out, link_only=True)
+    assert result.progress_df is None and result.joined_df is None
+    assert len(result.links_df) == 3 and len(result.overrides_template_df) == 3
+    for name in ('project_hub_links.csv', 'status_overrides_template.csv',
+                 'hubs_with_inventar_exploded.csv'):
+        assert (out / name).exists(), name
+    for name in ('hub_progress.csv', 'hub_urgency_report.html', 'hub_urgency_map.html'):
+        assert not (out / name).exists(), name
+
+
+def test_full_run_also_writes_review_files(geojson_folder, tmp_path):
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert (tmp_path / 'out' / 'project_hub_links.csv').exists()
+    assert result.links_df['uid'].tolist() == [1, 2, 3]
+    assert result.progress_df is not None
+
+
+def test_ui_link_only_checkbox(geojson_folder, tmp_path):
+    pytest.importorskip('ipywidgets')
+    from huburgency.widgets import HubUrgencyUI
+
+    ui = HubUrgencyUI(input_dir=geojson_folder, output_dir=tmp_path, show=False)
+    ui._link_only.value = True
+    result = ui.run()
+    assert result is not None and result.progress_df is None
+    assert 'Linking done' in ui.summary_html(result)
+    assert (tmp_path / 'status_overrides_template.csv').exists()
