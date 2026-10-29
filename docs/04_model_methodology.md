@@ -18,11 +18,18 @@ Formally, let `H(h)` be the set of hexagon polygons of hub *h* and `g(p)` the
 geometry of project *p*. Then
 
 ```
-linked(p, h)  ⇔  ∃ cell ∈ H(h) :  g(p) ∩ polygon(cell) ≠ ∅
+linked(p, h)  ⇔  ∃ cell ∈ H(h) :  g(p) ∩ buffer(polygon(cell), b) ≠ ∅
 ```
+
+where `b` is `buffer_meters` (default 200 m; `b = 0` gives the plain hexagon test).
 
 Notes and consequences:
 
+- **The buffer widens the catchment.** Projects within `b` metres of a hexagon
+  edge are linked to the hub even though they do not touch the hexagon itself.
+  Neighbouring hubs' buffers can overlap, so a project near a boundary may link
+  to more than one hub. Choose `b` knowing the H3 resolution: a 200 m buffer is
+  more than one hexagon edge at resolution 10 but about one edge at resolution 9.
 - **Intersection, not containment.** A line that merely touches or crosses a
   hexagon links the project — it need not be fully inside. This is deliberate:
   corridors and road segments should attach to every hub they pass through.

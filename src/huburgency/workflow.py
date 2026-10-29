@@ -35,6 +35,7 @@ import logging
 import pandas as pd
 
 from .inventar_hub_linker import (
+    DEFAULT_BUFFER_METERS,
     GEOJSON_SUFFIXES,
     InventarHubLinker,
     ProcessingConfig,
@@ -450,6 +451,7 @@ def run_end_to_end(
     group_col: str = 'group',
     make_report: bool = True,
     link_only: bool = False,
+    buffer_meters: float = DEFAULT_BUFFER_METERS,
 ) -> WorkflowResult:
     """
     Run Stage 1 and Stage 2 for the files in ``input_dir``; write CSVs to ``output_dir``.
@@ -473,6 +475,8 @@ def run_end_to_end(
         link_only: stop after Stage 1: write the Stage 1 CSVs, ``project_hub_links.csv``
             and ``status_overrides_template.csv``, but do not score. Needs no
             status weights file.
+        buffer_meters: metres added around every hub H3 cell when linking projects
+            (default 200; 0 = only projects inside the bare hexagon).
 
     Always written after Stage 1 (before scoring):
         ``project_hub_links.csv``: one row per (project uid, hub group) with
@@ -499,6 +503,7 @@ def run_end_to_end(
         inventar_directory=inputs.inventar,
         output_csv_path=output_dir / OUT_LINKER,
         encoding=encoding,
+        buffer_meters=buffer_meters,
     )
     config.validate()
 

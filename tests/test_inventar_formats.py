@@ -15,7 +15,9 @@ import pytest
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
 from huburgency import (
+    DEFAULT_BUFFER_METERS,
     GeoJSONSource,
+    H3PolygonConverter,
     InventarHubLinker,
     InventarLoaderFactory,
     ProcessingConfig,
@@ -346,6 +348,80 @@ def test_ui_reports_errors_instead_of_raising(geojson_folder, tmp_path):
 
 
 # =============================================================================
+# Buffer around hub H3 cells
+# =============================================================================
+
+def _dist_to_cell_m(cell, lonlat):
+    """Metres from a lon/lat point to the boundary of an H3 cell."""
+    poly = H3PolygonConverter.convert(cell)
+    pt = gpd.GeoSeries([Point(*lonlat)], crs='EPSG:4326').to_crs('EPSG:2039').iloc[0]
+    poly_m = gpd.GeoSeries([poly], crs='EPSG:4326').to_crs('EPSG:2039').iloc[0]
+    return poly_m.distance(pt)
+
+
+def _link_point_near_cell(tmp_path, buffer_meters=None):
+    """Hub of one cell; project = a point at the centre of the neighbouring cell."""
+    hub = _cell(PT)
+    neighbour = h3.grid_ring(hub, 1)[0]
+    lat, lon = h3.cell_to_latlng(neighbour)
+    gpd.GeoDataFrame([{'uid': 1}], geometry=[Point(lon, lat)], crs='EPSG:4326') \
+        .to_file(tmp_path / 'layer.geojson', driver='GeoJSON')
+    pd.DataFrame([{'group': 1, 'x': 0, 'y': 0, 'HubNameHE': 'א', 'h3_index': str([hub])}]) \
+        .to_csv(tmp_path / 'hubs.csv', index=False, encoding='windows-1255')
+    kw = {} if buffer_meters is None else {'buffer_meters': buffer_meters}
+    config = ProcessingConfig(hubs_csv_path=tmp_path / 'hubs.csv', inventar_directory=tmp_path,
+                              output_csv_path=tmp_path / 'out.csv', **kw)
+    df = InventarHubLinker(config).process()
+    return hub, (lon, lat), df['intersecting_points'].iloc[0]
+
+
+def test_default_buffer_is_200_metres():
+    assert DEFAULT_BUFFER_METERS == 200.0
+    assert ProcessingConfig('h', 'i', 'o').buffer_meters == 200.0
+
+
+def test_buffer_links_project_just_outside_the_hexagon(tmp_path):
+    hub, lonlat, _ = _link_point_near_cell(tmp_path, buffer_meters=0)
+    gap = _dist_to_cell_m(hub, lonlat)
+    assert 0 < gap < 200                                   # fixture sanity: inside 200 m, outside the hex
+    assert _link_point_near_cell(tmp_path, buffer_meters=0)[2] == []
+    assert _link_point_near_cell(tmp_path, buffer_meters=gap - 20)[2] == []
+    assert _link_point_near_cell(tmp_path, buffer_meters=gap + 20)[2] == [1]
+    assert _link_point_near_cell(tmp_path)[2] == [1]       # default 200 m
+
+
+def test_buffer_series_grows_polygons_by_the_distance():
+    cell = _cell(PT)
+    poly = H3PolygonConverter.convert(cell)
+    grown = H3PolygonConverter.buffer_series(pd.Series([poly, None]), 200)
+    assert grown.iloc[1] is None
+    to_m = lambda g: gpd.GeoSeries([g], crs='EPSG:4326').to_crs('EPSG:2039').iloc[0]
+    # every original vertex is at least ~200 m inside the buffered outline
+    assert to_m(grown.iloc[0]).exterior.distance(to_m(Point(*poly.exterior.coords[0]))) \
+        == pytest.approx(200, abs=2)
+    assert H3PolygonConverter.buffer_series(pd.Series([poly]), 0).iloc[0] is poly
+
+
+def test_negative_buffer_is_rejected(geojson_folder, tmp_path):
+    with pytest.raises(ValueError, match="buffer_meters"):
+        _config(geojson_folder, tmp_path, buffer_meters=-5).validate()
+
+
+def test_run_end_to_end_buffer_changes_links(geojson_folder, tmp_path):
+    # Points ~ 150 m from the hub cell: linked at 200 m, not when the buffer is off.
+    hub = _cell(PT)
+    lat, lon = h3.cell_to_latlng(h3.grid_ring(hub, 1)[0])
+    pd.concat([_features(), gpd.GeoDataFrame(
+        [{'uid': 6, 'proj_name': 'קרוב', 'main_type': 'רכבת', 'Proj_status': 'ביצוע', 'scn_year': '2040'}],
+        geometry=[Point(lon, lat)], crs='EPSG:4326')], ignore_index=True) \
+        .to_file(geojson_folder / 'layer.geojson', driver='GeoJSON')
+    off = run_end_to_end(geojson_folder, tmp_path / 'off', make_report=False, buffer_meters=0)
+    on = run_end_to_end(geojson_folder, tmp_path / 'on', make_report=False)
+    assert 6 not in off.links_df['uid'].tolist()
+    assert 6 in on.links_df['uid'].tolist()
+
+
+# =============================================================================
 # Project-hub review files (written after Stage 1) and link-only mode
 # =============================================================================
 
@@ -388,7 +464,7 @@ def test_project_hub_links_project_touching_several_hubs_and_cells(geojson_folde
     ]).to_csv(geojson_folder / 'hubs.csv', index=False, encoding='windows-1255')
 
     out = tmp_path / 'out'
-    run_end_to_end(geojson_folder, out, make_report=False)
+    run_end_to_end(geojson_folder, out, make_report=False, buffer_meters=0)   # bare hexagons
     links = _read(out / 'project_hub_links.csv')
     p5 = links[links['uid'] == 5].set_index('group')
     assert set(p5.index) == {7, 8}

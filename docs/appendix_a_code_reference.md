@@ -141,7 +141,9 @@ Stateless transforms between output shapes.
 ### A.1.11 `InventarHubLinker` (orchestrator)
 `InventarHubLinker(config)` wires together the loaders, factory, and converter.
 - `process() -> DataFrame` — the full Stage-1 pipeline: validate → load hubs →
-  load geometries → H3→polygon → intersect all types → drop the temp polygon
+  load geometries → H3→polygon → buffer by `config.buffer_meters` (via
+  `H3PolygonConverter.buffer_series`, in `config.buffer_crs`, default EPSG:2039) →
+  intersect all types → drop the temp polygon
   column. Returns the **base** DataFrame.
 - `_load_all_geometries()`, `_compute_all_intersections()`,
   `_log_intersection_summary()` — internal helpers (load layers; loop hexagons ×
@@ -153,14 +155,14 @@ Stateless transforms between output shapes.
   `'base'`, `'combined'`, `'exploded'`.
 
 ### A.1.12 Module-level functions
-- `link_inventar_to_hubs(hubs_csv, inventar_dir, output_csv, encoding='windows-1255', create_all_formats=True) -> Dict` —
+- `link_inventar_to_hubs(hubs_csv, inventar_dir, output_csv, encoding='windows-1255', create_all_formats=True, buffer_meters=200.0) -> Dict` —
   one-call convenience wrapper around config + linker.
 - `combine_and_explode_projects(df) -> DataFrame` — post-process an existing base
   DataFrame into the exploded mapping.
 - `get_hubs_with_projects(df) -> DataFrame` — filter to hubs with at least one
   intersecting project.
 - `main()` — argparse CLI (`--hubs/-H`, `--inventar/-I`, `--output/-o`,
-  `--encoding/-e`).
+  `--encoding/-e`, `--buffer/-b` metres, default 200).
 
 ---
 

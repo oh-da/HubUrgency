@@ -29,6 +29,7 @@ from .inventar_hub_linker import (
     link_inventar_to_hubs,
     combine_and_explode_projects,
     get_hubs_with_projects,
+    DEFAULT_BUFFER_METERS,
 )
 
 from .hub_project_status_calculator import (
@@ -66,6 +67,7 @@ __all__ = [
     "link_inventar_to_hubs",
     "combine_and_explode_projects",
     "get_hubs_with_projects",
+    "DEFAULT_BUFFER_METERS",
     # Status Calculator
     "HubProjectStatusPipeline",
     "DataLoader",

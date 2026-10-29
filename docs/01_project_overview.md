@@ -36,7 +36,9 @@ The model rests on three ideas:
 2. **A project belongs to a hub if it spatially intersects the hub's hexagons.**
    Projects are geometries — points, lines, or multilines. If any part of a
    project geometry intersects any of a hub's hexagons, that project is *linked*
-   to the hub. This is the job of **Stage 1** (the "Inventar Hub Linker").
+   to the hub. Each hexagon is first grown by a configurable buffer (200 m by
+   default), so projects just outside the hexagon edge still count. This is the
+   job of **Stage 1** (the "Inventar Hub Linker").
 
 3. **Progress is a weighted average of project statuses.**
    Every project has an engineering status (e.g. "detailed design", "under

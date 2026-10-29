@@ -52,6 +52,9 @@ logger = logging.getLogger(__name__)
 
 GEOJSON_SUFFIXES = ('.geojson', '.json')
 
+DEFAULT_BUFFER_METERS = 200.0
+METRIC_CRS = 'EPSG:2039'   # Israel TM Grid, units are metres
+
 @dataclass
 class ProcessingConfig:
     """Configuration for the Inventar-to-Hubs linking process."""
@@ -79,7 +82,12 @@ class ProcessingConfig:
     uid_column: str = 'uid'
     h3_column: str = 'h3_index'
     group_column: str = 'group'
-    
+
+    # Buffer added around every hub H3 cell before it is tested against the projects.
+    # Distance is in metres, measured in ``buffer_crs``; 0 = the bare hexagon.
+    buffer_meters: float = DEFAULT_BUFFER_METERS
+    buffer_crs: str = METRIC_CRS
+
     def __post_init__(self):
         """Convert string paths to Path objects."""
         self.hubs_csv_path = Path(self.hubs_csv_path)
@@ -100,6 +108,8 @@ class ProcessingConfig:
             raise FileNotFoundError(f"Inventar directory not found: {self.inventar_directory}")
         if self.inventar_file is not None and not self.inventar_file.exists():
             raise FileNotFoundError(f"Inventar file not found: {self.inventar_file}")
+        if not self.buffer_meters >= 0:
+            raise ValueError(f"buffer_meters must be >= 0, got {self.buffer_meters}")
 
 
 # =============================================================================
@@ -406,6 +416,27 @@ class H3PolygonConverter:
         """Convert a Series of H3 indices to Polygons."""
         return h3_series.apply(cls.convert)
 
+    @staticmethod
+    def buffer_series(
+        polygons: pd.Series, meters: float, metric_crs: str = METRIC_CRS
+    ) -> pd.Series:
+        """
+        Grow WGS84 polygons by ``meters``.
+
+        The buffer is applied in ``metric_crs`` (degrees are not a distance) and the
+        result is returned in WGS84. Missing polygons stay missing; ``meters`` of 0
+        returns the input unchanged.
+        """
+        if meters <= 0:
+            return polygons
+        buffered = (
+            gpd.GeoSeries(polygons.values, index=polygons.index, crs='EPSG:4326')
+            .to_crs(metric_crs)
+            .buffer(meters)
+            .to_crs('EPSG:4326')
+        )
+        return pd.Series(buffered.values, index=polygons.index)
+
 
 # =============================================================================
 # Spatial Intersection Engine (Single Responsibility)
@@ -608,8 +639,14 @@ class InventarHubLinker:
         
         # Convert H3 indices to polygons
         logger.info("Converting H3 indices to polygons...")
-        hub_df['h3_polygon'] = self._converter.convert_series(hub_df[self.config.h3_column])
-        
+        polygons = self._converter.convert_series(hub_df[self.config.h3_column])
+        if self.config.buffer_meters > 0:
+            logger.info(f"Buffering H3 cells by {self.config.buffer_meters:g} m "
+                        f"(in {self.config.buffer_crs})")
+            polygons = self._converter.buffer_series(
+                polygons, self.config.buffer_meters, self.config.buffer_crs)
+        hub_df['h3_polygon'] = polygons
+
         # Perform spatial intersections
         hub_df = self._compute_all_intersections(hub_df, geometry_gdfs)
         
@@ -748,7 +785,8 @@ def link_inventar_to_hubs(
     inventar_dir: str,
     output_csv: str,
     encoding: str = 'windows-1255',
-    create_all_formats: bool = True
+    create_all_formats: bool = True,
+    buffer_meters: float = DEFAULT_BUFFER_METERS
 ) -> Dict[str, pd.DataFrame]:
     """
     Convenience function to run the full pipeline.
@@ -763,7 +801,9 @@ def link_inventar_to_hubs(
             - {output_csv}: Base output with intersection lists
             - {output_csv}_combined: With all_project_uids column
             - {output_csv}_exploded: One row per project UID
-        
+        buffer_meters: Distance in metres added around every hub H3 cell before
+            testing it against the projects (default 200; 0 = the bare hexagon)
+
     Returns:
         Dict with 'base', 'combined', 'exploded' DataFrames
         
@@ -780,7 +820,8 @@ def link_inventar_to_hubs(
         hubs_csv_path=hubs_csv,
         inventar_directory=inventar_dir,
         output_csv_path=output_csv,
-        encoding=encoding
+        encoding=encoding,
+        buffer_meters=buffer_meters
     )
     
     linker = InventarHubLinker(config)
@@ -863,13 +904,21 @@ def main():
         help='File encoding (default: windows-1255)'
     )
     
+    parser.add_argument(
+        '--buffer', '-b',
+        type=float,
+        default=DEFAULT_BUFFER_METERS,
+        help=f'Metres added around every hub H3 cell (default: {DEFAULT_BUFFER_METERS:g}; 0 = none)'
+    )
+
     args = parser.parse_args()
-    
+
     link_inventar_to_hubs(
         hubs_csv=args.hubs,
         inventar_dir=args.inventar,
         output_csv=args.output,
-        encoding=args.encoding
+        encoding=args.encoding,
+        buffer_meters=args.buffer
     )
 
 

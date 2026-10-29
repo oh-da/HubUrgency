@@ -19,6 +19,7 @@ from html import escape
 from pathlib import Path
 from typing import Optional
 
+from .inventar_hub_linker import DEFAULT_BUFFER_METERS
 from .workflow import WorkflowResult, run_end_to_end
 
 DEFAULT_OUTPUT_SUBFOLDER = 'hub_urgency_output'
@@ -73,6 +74,9 @@ class HubUrgencyUI:
                                      placeholder='optional: CSV of hub ids -> selected_hubs_report.xlsx')
         self._threshold = w.BoundedFloatText(value=50.0, min=0, max=100, step=1,
                                              description='Urgent from %:')
+        self._buffer = w.BoundedFloatText(value=DEFAULT_BUFFER_METERS, min=0, max=10000, step=50,
+                                          description='Buffer (m):',
+                                          tooltip='Metres added around every hub H3 cell when linking projects')
         self._encoding = w.Dropdown(options=['windows-1255', 'utf-8-sig'], value='windows-1255',
                                     description='Encoding:')
         self._link_only = w.Checkbox(
@@ -84,7 +88,7 @@ class HubUrgencyUI:
                                        '(makes the notebook file larger)', indent=False)
         advanced = w.VBox([self._hubs, self._inventar, self._weights, self._overrides,
                            self._project_data, self._hub_selection, self._threshold,
-                           self._encoding, self._report, self._preview_map])
+                           self._buffer, self._encoding, self._report, self._preview_map])
         accordion = w.Accordion(children=[advanced], selected_index=None)
         accordion.set_title(0, 'Advanced (file names, encoding, report)')
 
@@ -156,6 +160,7 @@ class HubUrgencyUI:
                         link_only=self._link_only.value,
                         hub_selection_csv=self._hub_selection.value.strip() or 'hub_selection.csv',
                         urgent_threshold=self._threshold.value,
+                        buffer_meters=self._buffer.value,
                     )
                 except Exception as exc:  # shown in the form instead of a traceback wall
                     self.error = exc

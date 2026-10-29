@@ -218,6 +218,22 @@ geo_boundary = h3.cell_to_boundary(h3_index)
 polygon = Polygon([(lon, lat) for lat, lon in geo_boundary])
 ```
 
+### Hub Buffer
+
+Each H3 polygon is grown by `buffer_meters` (default **200 m**) before it is
+tested against the projects, so projects just outside a hexagon still link to
+the hub. The buffer is computed in a metric CRS (`buffer_crs`, default
+EPSG:2039) and the result is projected back to WGS84:
+
+```python
+config = ProcessingConfig(..., buffer_meters=200)   # default
+config = ProcessingConfig(..., buffer_meters=0)     # bare hexagons, no buffer
+link_inventar_to_hubs(hubs, inventar, out, buffer_meters=350)
+```
+
+CLI: `--buffer 350`. Only the search area changes: `h3_index` in the outputs
+stays the original hexagon.
+
 ### Spatial Indexing Strategy
 
 Two-stage filtering for performance:

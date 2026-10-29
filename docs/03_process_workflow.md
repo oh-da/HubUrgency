@@ -93,6 +93,16 @@ GeoDataFrame. A missing file → empty GeoDataFrame + warning (run continues).
 
 This temporary `h3_polygon` column is dropped at the end of the stage.
 
+**Buffer.** Before the intersection step each hexagon is grown by
+`ProcessingConfig.buffer_meters` (default **200 m**; `0` = the bare hexagon). The
+polygons are reprojected to EPSG:2039 (`ProcessingConfig.buffer_crs`), buffered
+there because degrees are not a distance, and projected back to WGS84. Set it
+through `ProcessingConfig(buffer_meters=...)`, `link_inventar_to_hubs(..., buffer_meters=...)`,
+`run_end_to_end(..., buffer_meters=...)`, the **Buffer (m)** field under *Advanced*
+in the notebook form, or `--buffer` on the linker CLI. The buffer only widens the
+search area: the `h3_index` values in the outputs, and the cells drawn on the map,
+are still the original hexagons.
+
 ### Step 1.5 — Spatial intersection (the linking)
 For each geometry type, a `SpatialIntersector` wraps the GeoDataFrame and, for
 each hub polygon, finds intersecting project UIDs using a **two-stage strategy**:
