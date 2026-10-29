@@ -82,7 +82,19 @@ the inventar (GeoJSON properties / shapefile attributes).
 `run_end_to_end(input_dir, output_dir, ...) -> WorkflowResult` runs Stage 1 and
 Stage 2 for the files in a folder (see `discover_inputs`), applies the optional
 `status_overrides.csv`, and writes all CSVs to `output_dir`. This is what
-`notebooks/Hub_Urgency_End_to_End.ipynb` calls.
+`notebooks/Hub_Urgency_End_to_End.ipynb` calls. With `make_report=True` (default) it
+also writes `hub_urgency_map.html` and `hub_urgency_report.html`.
+
+### A.1.8a `report` module
+`build_map(result, path)` (folium/Leaflet map of hub H3 cells and project geometries),
+`build_report(result, path)` (self-contained HTML) and `export_report(result, map_path,
+report_path)`, which writes both and skips only the map if `folium` is missing.
+
+### A.1.8b `widgets` module
+`launch_ui(input_dir=None, output_dir=None)` shows folder pickers (`ipyfilechooser`; text
+boxes if it is not installed) and a Run button; `ui.result` holds the `WorkflowResult`
+afterwards and `ui.run()` runs it programmatically. Used by
+`notebooks/Hub_Urgency_Interactive.ipynb`. Needs `ipywidgets`.
 
 ### A.1.9 `H3PolygonConverter`
 - `convert(h3_index) -> Optional[Polygon]` *(static)* — converts an H3 index to a

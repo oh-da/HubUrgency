@@ -57,6 +57,8 @@ OUT_PROGRESS = 'hub_progress.csv'
 OUT_BREAKDOWN = 'hub_status_breakdown.csv'
 OUT_STATUS_ZERO = 'status_zero_projects.csv'
 OUT_WEIGHTS_TEMPLATE = 'status_weights_template.csv'
+OUT_MAP = 'hub_urgency_map.html'
+OUT_REPORT = 'hub_urgency_report.html'
 
 # Starting-point weights proposed in the generated template. These are a
 # suggestion for the Hebrew planning stages seen in the Inventar, not a
@@ -247,6 +249,25 @@ def load_status_weights(path: PathLike) -> pd.DataFrame:
     return df
 
 
+def normalise_overrides(override_df: pd.DataFrame) -> pd.DataFrame:
+    """Validated ``uid`` (int) / ``Proj_status`` (clean str) table, last row per UID wins."""
+    missing = {'uid', 'Proj_status'} - set(override_df.columns)
+    if missing:
+        raise ValueError(f"Status overrides file is missing required columns: {sorted(missing)}")
+    overrides = override_df[['uid', 'Proj_status']].copy()
+    overrides['Proj_status'] = clean_status_series(overrides['Proj_status'])
+    overrides = overrides.dropna()
+    overrides['uid'] = pd.to_numeric(overrides['uid'], errors='coerce')
+    overrides = overrides.dropna(subset=['uid'])
+    overrides['uid'] = overrides['uid'].astype('int64')
+    return overrides.drop_duplicates(subset='uid', keep='last')
+
+
+def find_unknown_override_uids(project_df: pd.DataFrame, overrides: pd.DataFrame) -> List[int]:
+    """Override UIDs that match no project (they are ignored)."""
+    return sorted(int(u) for u in set(overrides['uid']) - set(project_df['uid'].astype('int64')))
+
+
 def apply_status_overrides(
     project_df: pd.DataFrame, override_df: Optional[pd.DataFrame]
 ) -> pd.DataFrame:
@@ -262,19 +283,8 @@ def apply_status_overrides(
         result['status_overridden'] = False
         return result
 
-    missing = {'uid', 'Proj_status'} - set(override_df.columns)
-    if missing:
-        raise ValueError(f"Status overrides file is missing required columns: {sorted(missing)}")
-
-    overrides = override_df[['uid', 'Proj_status']].copy()
-    overrides['Proj_status'] = clean_status_series(overrides['Proj_status'])
-    overrides = overrides.dropna()
-    overrides['uid'] = pd.to_numeric(overrides['uid'], errors='coerce')
-    overrides = overrides.dropna(subset=['uid'])
-    overrides['uid'] = overrides['uid'].astype('int64')
-    overrides = overrides.drop_duplicates(subset='uid', keep='last')
-
-    unknown = sorted(set(overrides['uid']) - set(result['uid'].astype('int64')))
+    overrides = normalise_overrides(override_df)
+    unknown = find_unknown_override_uids(project_df, overrides)
     if unknown:
         logger.warning(f"Override UIDs not found in the project data (ignored): {unknown}")
 
@@ -304,7 +314,10 @@ class WorkflowResult:
     progress_df: pd.DataFrame
     status_breakdown_df: pd.DataFrame
     status_zero_df: Optional[pd.DataFrame]
+    config: Optional[ProcessingConfig] = None
+    group_col: str = 'group'
     unmapped_statuses: List[str] = field(default_factory=list)
+    unknown_override_uids: List[int] = field(default_factory=list)
     n_overridden: int = 0
     outputs: Dict[str, Path] = field(default_factory=dict)
 
@@ -360,6 +373,7 @@ def run_end_to_end(
     project_data_csv: str = 'data.csv',
     encoding: str = 'windows-1255',
     group_col: str = 'group',
+    make_report: bool = True,
 ) -> WorkflowResult:
     """
     Run Stage 1 and Stage 2 for the files in ``input_dir``; write CSVs to ``output_dir``.
@@ -374,6 +388,8 @@ def run_end_to_end(
         project_data_csv: optional project attribute table.
         encoding: encoding of the hubs CSV and of the CSVs written.
         group_col: hub id column.
+        make_report: also write ``hub_urgency_map.html`` and ``hub_urgency_report.html``
+            (the map is skipped with a warning if ``folium`` is not installed).
 
     Raises:
         FileNotFoundError: when ``status_weights.csv`` is missing. A pre-filled
@@ -399,9 +415,11 @@ def run_end_to_end(
     # --- Project statuses, overrides and weights: cheap checks before the slow linking ---
     project_df = prepare_project_table(inputs, config)
     override_df = None
+    unknown_override_uids: List[int] = []
     if inputs.status_overrides_csv is not None:
         override_df = read_csv_auto(inputs.status_overrides_csv)
         logger.info(f"Status overrides: {len(override_df)} rows from {inputs.status_overrides_csv.name}")
+        unknown_override_uids = find_unknown_override_uids(project_df, normalise_overrides(override_df))
     else:
         logger.info("No status overrides file found - using statuses as they are in the data")
     project_df = apply_status_overrides(project_df, override_df)
@@ -472,7 +490,7 @@ def run_end_to_end(
     if status_zero_df is not None:
         outputs['status_zero'] = _save_csv(status_zero_df, output_dir / OUT_STATUS_ZERO, encoding)
 
-    return WorkflowResult(
+    result = WorkflowResult(
         inputs=inputs,
         output_dir=output_dir,
         project_df=project_df,
@@ -482,7 +500,15 @@ def run_end_to_end(
         progress_df=progress_df,
         status_breakdown_df=breakdown_df,
         status_zero_df=status_zero_df,
+        config=config,
+        group_col=group_col,
         unmapped_statuses=unmapped,
+        unknown_override_uids=unknown_override_uids,
         n_overridden=n_overridden,
         outputs=outputs,
     )
+
+    if make_report:
+        from .report import export_report
+        outputs.update(export_report(result, output_dir / OUT_MAP, output_dir / OUT_REPORT))
+    return result

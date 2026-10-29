@@ -269,3 +269,77 @@ def test_end_to_end_shapefiles_without_attributes_explains(shapefile_folder, tmp
     (shapefile_folder / 'data.csv').unlink()
     with pytest.raises(ValueError, match="data.csv"):
         run_end_to_end(shapefile_folder, tmp_path / 'out')
+
+
+# =============================================================================
+# Map / report export and notebook UI
+# =============================================================================
+
+def test_end_to_end_writes_map_and_report(geojson_folder, tmp_path):
+    pd.DataFrame({'uid': [3, 999], 'Proj_status': ['ביצוע', 'ביצוע']}) \
+        .to_csv(geojson_folder / 'status_overrides.csv', index=False, encoding='utf-8-sig')
+    _write_weights(geojson_folder, labels=('?', 'ביצוע'), weights=(0, 1.0))   # uid 2's 'תכנון מפורט' is unmapped
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out)
+
+    report = (out / 'hub_urgency_report.html').read_text(encoding='utf-8')
+    assert result.outputs['report'] == out / 'hub_urgency_report.html'
+    assert 'Hub Urgency Report' in report
+    assert 'Override UIDs not found' in report and '999' in report
+    assert 'Statuses with no weight' in report
+    assert 'Manual status overrides' in report
+    assert 'hub_urgency_map.html' in report
+
+    page = (out / 'hub_urgency_map.html').read_text(encoding='utf-8')
+    for text in ('נקודה', 'קו מרובה', 'קו', 'ריק', 'no projects'):
+        assert json.dumps(text)[1:-1] in page, text   # folium embeds GeoJSON with \\u escapes
+    assert page.count('"type": "Feature"') == 4 + 3     # 4 hub H3 cells + 3 projects (polygon excluded)
+
+
+def test_report_still_written_without_folium(geojson_folder, tmp_path, monkeypatch):
+    monkeypatch.setitem(__import__('sys').modules, 'folium', None)   # make `import folium` fail
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out)
+    assert 'map' not in result.outputs and (out / 'hub_urgency_report.html').exists()
+    assert 'Open the interactive map' not in (out / 'hub_urgency_report.html').read_text(encoding='utf-8')
+
+
+def test_make_report_false_skips_html(geojson_folder, tmp_path):
+    out = tmp_path / 'out'
+    run_end_to_end(geojson_folder, out, make_report=False)
+    assert not (out / 'hub_urgency_report.html').exists()
+    assert not (out / 'hub_urgency_map.html').exists()
+
+
+def test_ui_run_uses_form_values(geojson_folder, tmp_path):
+    pytest.importorskip('ipywidgets')
+    from huburgency.widgets import HubUrgencyUI
+
+    ui = HubUrgencyUI(input_dir=geojson_folder, output_dir=tmp_path, show=False)
+    assert ui.input_dir == geojson_folder
+    assert ui.output_dir == tmp_path          # an explicit output_dir is used as given
+    result = ui.run()
+    assert result is not None and ui.error is None
+    assert (tmp_path / 'hub_urgency_report.html').exists()
+    assert ui._run.disabled is False
+
+
+def test_ui_accepts_output_folder_that_does_not_exist_yet(geojson_folder, tmp_path):
+    pytest.importorskip('ipywidgets')
+    from huburgency.widgets import HubUrgencyUI
+
+    ui = HubUrgencyUI(input_dir=geojson_folder, output_dir=tmp_path / 'new' / 'results', show=False)
+    assert ui.output_dir == tmp_path / 'new' / 'results'
+    assert ui.run() is not None
+    assert (tmp_path / 'new' / 'results' / 'hub_urgency_map.html').exists()
+
+
+def test_ui_reports_errors_instead_of_raising(geojson_folder, tmp_path):
+    pytest.importorskip('ipywidgets')
+    from huburgency.widgets import HubUrgencyUI
+
+    (geojson_folder / 'status_weights.csv').unlink()
+    ui = HubUrgencyUI(input_dir=geojson_folder, output_dir=tmp_path, show=False)
+    assert ui.run() is None
+    assert isinstance(ui.error, FileNotFoundError)
+    assert (tmp_path / 'status_weights_template.csv').exists()
