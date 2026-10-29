@@ -40,6 +40,27 @@ pip install -e ".[notebooks,dev]"
 > `huburgency`. Dependencies can alternatively be installed with
 > `pip install -r requirements.txt`.
 
+### One-stop run (input folder → output folder)
+
+Open `notebooks/Hub_Urgency_Interactive.ipynb` and pick the two folders in the form
+(folder pickers + **Run** button), or `notebooks/Hub_Urgency_End_to_End.ipynb` and set
+`INPUT_DIR` / `OUTPUT_DIR` in a cell. Both run everything and finish by writing an
+HTML report and an interactive map to the output folder. Or from Python:
+
+```python
+from huburgency import run_end_to_end
+
+result = run_end_to_end('path/to/input', 'path/to/output')
+result.progress_df          # per-hub progress
+# also written: hub_urgency_report.html and hub_urgency_map.html in the output folder
+```
+
+The input folder holds the hubs CSV, the inventar (a `.geojson` file **or**
+`geom_*.shp` shapefiles), `status_weights.csv`, and optionally `status_overrides.csv`
+(`uid`, `Proj_status` - overrides those projects' statuses when the file exists) and
+`data.csv` (project attributes, needed only if the inventar does not carry them).
+See [docs/02_inputs.md](docs/02_inputs.md).
+
 ### Basic Usage
 
 **Part 1: Link Projects to Hubs**
@@ -80,12 +101,18 @@ HubUrgency/
 │   └── huburgency/                   # Importable package
 │       ├── __init__.py
 │       ├── hub_project_status_calculator.py
-│       └── inventar_hub_linker.py
+│       ├── inventar_hub_linker.py
+│       ├── workflow.py               # run_end_to_end(input_dir, output_dir)
+│       ├── report.py                 # HTML report + interactive map
+│       └── widgets.py                # notebook folder pickers + Run button
 ├── tests/                            # Unit tests (pytest)
-│   └── test_calculator.py
+│   ├── test_calculator.py
+│   └── test_inventar_formats.py
 ├── notebooks/                        # Jupyter notebooks
 │   ├── Hub_Project_Status_Analysis.ipynb
-│   └── inventar_hub_linker_notebook.ipynb
+│   ├── inventar_hub_linker_notebook.ipynb
+│   ├── Hub_Urgency_End_to_End.ipynb   # one-stop run: set INPUT_DIR / OUTPUT_DIR
+│   └── Hub_Urgency_Interactive.ipynb  # same, with folder pickers + Run button
 ├── docs/                             # Documentation
 │   ├── README.md                     # Documentation index
 │   ├── 01_project_overview.md        # ┐

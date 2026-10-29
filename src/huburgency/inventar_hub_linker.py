@@ -13,7 +13,8 @@ intersect with each hub's H3 hexagonal cells.
 Input:
     - Hub results CSV from the Transit Hub Processing Pipeline
       (columns: group, x, y, HubNameHE, h3_index)
-    - Inventar shapefiles: geom_point.shp, geom_line.shp, geom_multiline.shp
+    - Inventar geometries, either as shapefiles (geom_point.shp, geom_line.shp,
+      geom_multiline.shp) or as a single GeoJSON file holding mixed geometry types
 
 Output:
     - Enriched hub DataFrame with intersecting project UIDs per geometry type
@@ -49,6 +50,8 @@ logger = logging.getLogger(__name__)
 # Configuration
 # =============================================================================
 
+GEOJSON_SUFFIXES = ('.geojson', '.json')
+
 @dataclass
 class ProcessingConfig:
     """Configuration for the Inventar-to-Hubs linking process."""
@@ -62,6 +65,10 @@ class ProcessingConfig:
     
     # File encoding
     encoding: str = 'windows-1255'
+    
+    # Optional: explicit path to a single GeoJSON inventar file. When unset, the
+    # loader auto-detects shapefiles / GeoJSON inside ``inventar_directory``.
+    inventar_file: Optional[Path] = None
     
     # Geometry shapefile names
     point_shapefile: str = 'geom_point.shp'
@@ -78,6 +85,12 @@ class ProcessingConfig:
         self.hubs_csv_path = Path(self.hubs_csv_path)
         self.inventar_directory = Path(self.inventar_directory)
         self.output_csv_path = Path(self.output_csv_path)
+        if self.inventar_file is not None:
+            self.inventar_file = Path(self.inventar_file)
+        elif self.inventar_directory.suffix.lower() in GEOJSON_SUFFIXES:
+            # Allow pointing ``inventar_directory`` straight at a GeoJSON file.
+            self.inventar_file = self.inventar_directory
+            self.inventar_directory = self.inventar_file.parent
     
     def validate(self) -> None:
         """Validate configuration paths exist."""
@@ -85,6 +98,8 @@ class ProcessingConfig:
             raise FileNotFoundError(f"Hubs CSV not found: {self.hubs_csv_path}")
         if not self.inventar_directory.exists():
             raise FileNotFoundError(f"Inventar directory not found: {self.inventar_directory}")
+        if self.inventar_file is not None and not self.inventar_file.exists():
+            raise FileNotFoundError(f"Inventar file not found: {self.inventar_file}")
 
 
 # =============================================================================
@@ -192,28 +207,162 @@ class ShapefileLoader:
         return gdf
 
 
+class GeoJSONSource:
+    """
+    A single GeoJSON inventar file holding mixed geometry types.
+
+    The file is read once and cached; ``GeoJSONLoader`` instances then slice it
+    by geometry type. Coordinates are reprojected to WGS84 when the file
+    declares another CRS (GeoJSON without a CRS is WGS84 by definition).
+    """
+
+    # Geometry types routed to each inventar layer.
+    LAYER_GEOMETRY_TYPES = {
+        'points': ('Point', 'MultiPoint'),
+        'lines': ('LineString',),
+        'multilines': ('MultiLineString',),
+    }
+
+    def __init__(self, filepath: Path, uid_column: str = 'uid'):
+        self._filepath = Path(filepath)
+        self._uid_column = uid_column
+        self._gdf: Optional[gpd.GeoDataFrame] = None
+
+    @property
+    def filepath(self) -> Path:
+        return self._filepath
+
+    def read(self) -> gpd.GeoDataFrame:
+        """Read (once) and return the full GeoDataFrame in EPSG:4326."""
+        if self._gdf is None:
+            logger.info(f"Reading GeoJSON inventar from {self._filepath}")
+            gdf = gpd.read_file(self._filepath)
+            if self._uid_column not in gdf.columns:
+                raise ValueError(
+                    f"GeoJSON {self._filepath.name} has no '{self._uid_column}' property; "
+                    f"found: {sorted(gdf.columns)[:15]}"
+                )
+            if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+                logger.info(f"Reprojecting GeoJSON from {gdf.crs} to EPSG:4326")
+                gdf = gdf.to_crs('EPSG:4326')
+            gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
+
+            handled = {t for types in self.LAYER_GEOMETRY_TYPES.values() for t in types}
+            unsupported = ~gdf.geom_type.isin(handled)
+            if unsupported.any():
+                counts = gdf.loc[unsupported, 'geometry'].geom_type.value_counts().to_dict()
+                logger.warning(f"Ignoring unsupported geometry types in GeoJSON: {counts}")
+                gdf = gdf[~unsupported]
+            self._gdf = gdf.reset_index(drop=True)
+        return self._gdf
+
+    def layer(self, layer_name: str) -> gpd.GeoDataFrame:
+        """Features of one inventar layer ('points', 'lines' or 'multilines')."""
+        gdf = self.read()
+        return gdf[gdf.geom_type.isin(self.LAYER_GEOMETRY_TYPES[layer_name])].copy()
+
+    def attributes(self) -> pd.DataFrame:
+        """Project attribute table (all properties, no geometry)."""
+        return pd.DataFrame(self.read().drop(columns='geometry'))
+
+
+class GeoJSONLoader:
+    """Loads one geometry layer (points / lines / multilines) from a GeoJSON source."""
+
+    def __init__(self, source: GeoJSONSource, geometry_name: str):
+        self._source = source
+        self._name = geometry_name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def load(self) -> gpd.GeoDataFrame:
+        """Return the features of this layer as a GeoDataFrame."""
+        gdf = self._source.layer(self._name)
+        logger.info(f"Loaded {len(gdf)} {self._name} features from {self._source.filepath.name}")
+        return gdf
+
+
 class InventarLoaderFactory:
-    """Factory for creating geometry loaders (Open/Closed - add new types without modification)."""
-    
+    """
+    Factory for creating geometry loaders (Open/Closed - add new types without modification).
+
+    Source selection, in order:
+        1. ``config.inventar_file`` (a GeoJSON file), if set.
+        2. Shapefiles named in the config, if any exist in ``inventar_directory``.
+        3. A single ``*.geojson`` / ``*.json`` file in ``inventar_directory``.
+    With none of these, the (missing) shapefile loaders are returned, so each
+    layer is empty and logs a warning, as before.
+    """
+
     def __init__(self, config: ProcessingConfig):
         self.config = config
-    
+
+    def _shapefile_paths(self) -> Dict[str, Path]:
+        d = self.config.inventar_directory
+        return {
+            'points': d / self.config.point_shapefile,
+            'lines': d / self.config.line_shapefile,
+            'multilines': d / self.config.multiline_shapefile,
+        }
+
+    def find_geojson(self) -> Optional[Path]:
+        """Return the GeoJSON inventar file to use, or None when shapefiles apply."""
+        if self.config.inventar_file is not None:
+            return self.config.inventar_file
+        if any(p.exists() for p in self._shapefile_paths().values()):
+            return None
+        candidates = sorted(
+            f for f in self.config.inventar_directory.iterdir()
+            if f.is_file() and f.suffix.lower() in GEOJSON_SUFFIXES
+        )
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Multiple GeoJSON files in {self.config.inventar_directory}: "
+                f"{[c.name for c in candidates]}. Set ProcessingConfig.inventar_file."
+            )
+        return candidates[0] if candidates else None
+
+    def create_source(self) -> Optional[GeoJSONSource]:
+        """GeoJSON source for this config, or None when shapefiles are used."""
+        geojson = self.find_geojson()
+        if geojson is None:
+            return None
+        return GeoJSONSource(geojson, self.config.uid_column)
+
     def create_all_loaders(self) -> Dict[str, GeometryLoader]:
         """Create loaders for all geometry types."""
+        source = self.create_source()
+        if source is not None:
+            return {
+                name: GeoJSONLoader(source, name)
+                for name in GeoJSONSource.LAYER_GEOMETRY_TYPES
+            }
         return {
-            'points': ShapefileLoader(
-                self.config.inventar_directory / self.config.point_shapefile,
-                'points'
-            ),
-            'lines': ShapefileLoader(
-                self.config.inventar_directory / self.config.line_shapefile,
-                'lines'
-            ),
-            'multilines': ShapefileLoader(
-                self.config.inventar_directory / self.config.multiline_shapefile,
-                'multilines'
-            )
+            name: ShapefileLoader(path, name)
+            for name, path in self._shapefile_paths().items()
         }
+
+
+def load_inventar_attributes(config: ProcessingConfig) -> Optional[pd.DataFrame]:
+    """
+    Project attribute table embedded in the inventar, if there is one.
+
+    GeoJSON inventars carry the project attributes (``proj_name``,
+    ``Proj_status``, ...) as feature properties, so no separate project CSV is
+    needed. Shapefile layers are combined the same way from their attribute
+    tables. Returns None when no inventar features are found.
+    """
+    loaders = InventarLoaderFactory(config).create_all_loaders()
+    frames = []
+    for loader in loaders.values():
+        gdf = loader.load()
+        if len(gdf):
+            frames.append(pd.DataFrame(gdf.drop(columns='geometry')))
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True).drop_duplicates(subset=config.uid_column)
 
 
 # =============================================================================
@@ -606,7 +755,8 @@ def link_inventar_to_hubs(
     
     Args:
         hubs_csv: Path to hub results CSV from Transit Hub Pipeline
-        inventar_dir: Path to directory containing Inventar shapefiles
+        inventar_dir: Directory with Inventar shapefiles or a GeoJSON file
+            (or the path of the GeoJSON file itself)
         output_csv: Path for output CSV
         encoding: File encoding (default: windows-1255 for Hebrew)
         create_all_formats: If True, creates three output files:
@@ -700,7 +850,7 @@ def main():
     parser.add_argument(
         '--inventar', '-I',
         required=True,
-        help='Path to Inventar directory with shapefiles'
+        help='Inventar directory (shapefiles or a .geojson file), or the .geojson file itself'
     )
     parser.add_argument(
         '--output', '-o',

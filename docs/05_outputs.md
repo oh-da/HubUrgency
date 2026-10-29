@@ -109,7 +109,26 @@ per_hub["status_zero_pct"] = 100 * per_hub["status_zero_count"] / per_hub["total
 
 ---
 
-## 5.3 Quick analysis recipes
+## 5.3 End-to-end workflow outputs
+
+`run_end_to_end(input_dir, output_dir)` (or the notebooks) writes, into one folder:
+
+| File | Content |
+|------|---------|
+| `hubs_with_inventar[_combined/_exploded].csv` | Stage 1 outputs (5.1) |
+| `hub_project_joined.csv` | one row per (hub, project) with final status; adds `Proj_status_original` and `status_overridden` |
+| `hub_progress.csv` | per-hub progress (5.2.2) plus `x`, `y`, `HubNameHE` |
+| `hub_status_breakdown.csv` | project counts per status (5.2.3) |
+| `status_zero_projects.csv` | projects whose status has weight 0 (zero-project hubs excluded) |
+| `status_weights_template.csv` | the statuses found in the data with suggested weights, ready to edit |
+| `hub_urgency_report.html` | self-contained report: key figures, warnings (unmapped statuses, unknown override UIDs, hubs without projects), status counts, overrides, progress histogram, top/bottom 15 hubs |
+| `hub_urgency_map.html` | interactive Leaflet map: hub H3 cells coloured by progress (grey = no projects), project geometries coloured by status weight, tooltips with names and status mix |
+
+The map is a normal HTML file: it loads Leaflet and the basemap from the internet,
+so it needs a connection when opened (the hub and project data are embedded).
+Pass `make_report=False` to skip the two HTML files.
+
+## 5.4 Quick analysis recipes
 
 **Top hubs needing attention** (low progress, many projects):
 ```python

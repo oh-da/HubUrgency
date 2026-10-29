@@ -9,7 +9,7 @@ and the assumptions the code makes about them. Schemas below reflect the
 | # | Input | Used by | Form | Required columns |
 |---|-------|---------|------|------------------|
 | 1 | **Hubs CSV** | Stage 1 | CSV | `group`, `x`, `y`, `HubNameHE`, `h3_index` |
-| 2 | **Inventar shapefiles** | Stage 1 | 3 × Shapefile | `uid` + geometry |
+| 2 | **Inventar** (shapefiles *or* GeoJSON) | Stage 1 | 3 × Shapefile, or 1 × GeoJSON | `uid` + geometry |
 | 3 | **Project data CSV** (`data.csv`) | Stage 2 | CSV | `uid`, `proj_name`, `main_type`, `Proj_status`, `scn_year` |
 | 4 | **Status weights CSV** | Stage 2 | CSV | `Proj_status`, `weight` |
 
@@ -76,6 +76,26 @@ import geopandas as gpd
 gdf = gpd.read_file("geom_point.shp").to_crs("EPSG:4326")
 gdf.to_file("geom_point.shp")
 ```
+
+### GeoJSON alternative
+
+Instead of the three shapefiles the inventar can be **one GeoJSON file** holding
+mixed geometry types. It is split by geometry type into the same three layers
+(`Point`/`MultiPoint` → points, `LineString` → lines, `MultiLineString` →
+multilines; other types such as polygons are ignored with a warning). It needs a
+`uid` property; coordinates are WGS84 (reprojected automatically if the file
+declares another CRS).
+
+Source selection: an explicit `ProcessingConfig(inventar_file=...)` wins; otherwise
+shapefiles in `inventar_directory` are used if present; otherwise the single
+`*.geojson` file in the directory. `inventar_directory` may also point directly at
+the GeoJSON file.
+
+A GeoJSON from the map layer export also carries the project attributes
+(`proj_name`, `main_type`, `Proj_status`, `scn_year`, ...) as properties, so the
+**project data CSV (input 3) is not needed** in that case. Note that in such a
+file `Proj_status` can be a Hebrew label (e.g. `ביצוע`) rather than a number: the
+status weights table (input 4) must then list those exact labels.
 
 > A missing shapefile is tolerated: `ShapefileLoader.load()` logs a warning and
 > returns an empty GeoDataFrame, so that geometry type simply contributes no
@@ -152,7 +172,15 @@ status-zero discussion in [Chapter 4](04_model_methodology.md#43-the-status-zero
 
 ---
 
-## 2.6 Configuration knobs
+## 2.6 Optional: manual status overrides
+
+A CSV `status_overrides.csv` with columns `uid`, `Proj_status` replaces the status
+of those projects before scoring. If the file does not exist, the statuses from the
+inventar / `data.csv` are used unchanged. In the end-to-end workflow the changes are
+visible in the output (`Proj_status_original`, `status_overridden`), and UIDs that
+are not in the project data are reported and ignored.
+
+## 2.7 Configuration knobs
 
 Both stages expose configuration so you rarely need to touch input files:
 
