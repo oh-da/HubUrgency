@@ -91,6 +91,13 @@ Stage 2 fields are then `None`. In every run, `build_project_hub_links()` /
 `status_overrides_template.csv` right after Stage 1 (`result.links_df`,
 `result.overrides_template_df`).
 
+### A.1.8c `selected_hubs` module
+`read_hub_list(csv)`, `build_selected_hubs_tables(progress_df, joined_df, groups, urgent_threshold)`,
+`make_selected_hubs_report(...)` and `selected_hubs_report(output_dir, hub_list_csv)` build the
+Excel report (Summary + Projects sheets) for a list of hubs. `urgency_label()` implements the
+rule `status_progress_pct >= threshold` → `דחוף`, else `לא דחוף`. `run_end_to_end` calls it when
+`hub_selection.csv` exists (`urgent_threshold=50`) and stores it in `result.selected_hubs`.
+
 ### A.1.8a `report` module
 `build_map(result, path)` (folium/Leaflet map of hub H3 cells and project geometries),
 `build_report(result, path)` (self-contained HTML) and `export_report(result, map_path,

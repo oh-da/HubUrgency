@@ -123,12 +123,20 @@ per_hub["status_zero_pct"] = 100 * per_hub["status_zero_count"] / per_hub["total
 | `hub_status_breakdown.csv` | project counts per status (5.2.3) |
 | `status_zero_projects.csv` | projects whose status has weight 0 (zero-project hubs excluded) |
 | `status_weights_template.csv` | the statuses found in the data with suggested weights, ready to edit |
+| `selected_hubs_report.xlsx` | only if a hub list is given (`hub_selection.csv` in the input folder). Sheet **Summary**: run date, urgency rule, hubs requested / in report / urgent / not urgent, hub ids not found, then one row per hub: `group`, `HubNameHE`, `total_projects`, `current_weighted_sum`, `max_possible_sum`, `unique_statuses`, `status_progress_pct`, `Urgency`. Sheet **Projects**: one row per (hub, project): `group`, `HubNameHE`, `project_uid`, `proj_name`, `main_type`, `Proj_status` (final), `Proj_status_original`, `status_overridden`, `status_progress_pct`, `Urgency`; a hub without projects has one row with the project columns empty |
 | `hub_urgency_report.html` | self-contained report: key figures, warnings (unmapped statuses, unknown override UIDs, hubs without projects), status counts, overrides, progress histogram, top/bottom 15 hubs |
 | `hub_urgency_map.html` | interactive Leaflet map: hub H3 cells coloured by progress (grey = no projects), project geometries coloured by status weight, tooltips with names and status mix |
 
 The map is a normal HTML file: it loads Leaflet and the basemap from the internet,
 so it needs a connection when opened (the hub and project data are embedded).
 Pass `make_report=False` to skip the two HTML files.
+
+**Report for selected hubs.** Put a CSV with a `group` column (hub ids; a single-column file with another header or none also works) in the input folder as `hub_selection.csv`, or pass `hub_selection_csv=`. `Urgency` is `דחוף` when `status_progress_pct >= urgent_threshold` (default 50), otherwise `לא דחוף`. Ids not found in the results are listed in the Summary and left out. To get the report for another list **without re-running** the pipeline:
+
+```python
+from huburgency import selected_hubs_report
+selected_hubs_report('path/to/output', 'path/to/hub_list.csv')   # reads hub_progress.csv + hub_project_joined.csv
+```
 
 **Building the status overrides.** Run with `link_only=True` (the *Link only* checkbox in the
 interactive notebook, `LINK_ONLY` in the other one): the run stops right after Stage 1 and

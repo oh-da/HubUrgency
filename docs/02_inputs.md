@@ -180,7 +180,14 @@ inventar / `data.csv` are used unchanged. In the end-to-end workflow the changes
 visible in the output (`Proj_status_original`, `status_overridden`), and UIDs that
 are not in the project data are reported and ignored.
 
-## 2.7 Configuration knobs
+## 2.7 Optional: list of hubs for a focused report
+
+A CSV `hub_selection.csv` with a `group` column (hub ids). If it exists in the input folder
+of the end-to-end workflow, an Excel report limited to those hubs is written
+(`selected_hubs_report.xlsx`, see [Chapter 5](05_outputs.md)). It can also be produced later,
+from existing results, with `selected_hubs_report(output_dir, hub_list_csv)`.
+
+## 2.8 Configuration knobs
 
 Both stages expose configuration so you rarely need to touch input files:
 

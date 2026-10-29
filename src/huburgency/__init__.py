@@ -8,6 +8,7 @@ Modules:
     inventar_hub_linker: Links infrastructure projects to transit hubs using spatial intersection
     hub_project_status_calculator: Calculates weighted project status progress for hubs
     workflow: Runs both stages from an input folder to an output folder
+    selected_hubs: Excel report (summary + projects, Urgency flag) for a list of hubs
 """
 
 __version__ = "1.0.0"
@@ -48,6 +49,7 @@ from .workflow import (
     WorkflowInputs,
     WorkflowResult,
 )
+from .selected_hubs import selected_hubs_report, make_selected_hubs_report
 
 __all__ = [
     # Spatial Linker
@@ -79,4 +81,6 @@ __all__ = [
     "discover_inputs",
     "WorkflowInputs",
     "WorkflowResult",
+    "selected_hubs_report",
+    "make_selected_hubs_report",
 ]
