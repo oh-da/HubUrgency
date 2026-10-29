@@ -47,7 +47,9 @@ Open `notebooks/Hub_Urgency_Interactive.ipynb` and pick the two folders in the f
 `INPUT_DIR` / `OUTPUT_DIR` in a cell. Both run everything and finish by writing an
 HTML report and an interactive map to the output folder. Right after linking, they also write
 `project_hub_links.csv` (project UID → hub `group`, `HubNameHE`, touched H3 cells) and
-`status_overrides_template.csv` (edit it, save as `status_overrides.csv`); `link_only=True` stops there. Or from Python:
+`status_overrides_template.csv` (edit it, save as `status_overrides.csv`); `link_only=True` stops there.
+Give a CSV of hub ids (`group` column) as `hub_selection.csv` to also get `selected_hubs_report.xlsx` for just
+those hubs (summary with run date + projects sheet, `Urgency` = `דחוף` if progress ≥ 50 else `לא דחוף`). Or from Python:
 
 ```python
 from huburgency import run_end_to_end
@@ -106,10 +108,12 @@ HubUrgency/
 │       ├── inventar_hub_linker.py
 │       ├── workflow.py               # run_end_to_end(input_dir, output_dir)
 │       ├── report.py                 # HTML report + interactive map
+│       ├── selected_hubs.py          # Excel report for a list of hubs (Urgency flag)
 │       └── widgets.py                # notebook folder pickers + Run button
 ├── tests/                            # Unit tests (pytest)
 │   ├── test_calculator.py
-│   └── test_inventar_formats.py
+│   ├── test_inventar_formats.py
+│   └── test_selected_hubs.py
 ├── notebooks/                        # Jupyter notebooks
 │   ├── Hub_Project_Status_Analysis.ipynb
 │   ├── inventar_hub_linker_notebook.ipynb

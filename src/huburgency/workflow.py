@@ -46,6 +46,8 @@ from .hub_project_status_calculator import (
     StatusOverrideHandler,
 )
 
+from .selected_hubs import REPORT_FILENAME, SelectedHubsReport, make_selected_hubs_report
+
 logger = logging.getLogger(__name__)
 
 PathLike = Union[str, Path]
@@ -91,6 +93,7 @@ class WorkflowInputs:
     status_weights_csv: Path
     status_overrides_csv: Optional[Path] = None
     project_data_csv: Optional[Path] = None
+    hub_selection_csv: Optional[Path] = None
 
 
 def read_csv_auto(path: PathLike) -> pd.DataFrame:
@@ -163,13 +166,14 @@ def discover_inputs(
     status_weights_csv: str = 'status_weights.csv',
     status_overrides_csv: str = 'status_overrides.csv',
     project_data_csv: str = 'data.csv',
+    hub_selection_csv: str = 'hub_selection.csv',
 ) -> WorkflowInputs:
     """
     Locate every input inside ``input_dir``.
 
     File names are relative to ``input_dir`` (absolute paths also work).
     ``hubs_csv`` and ``inventar`` are auto-detected when None. The overrides
-    and project-data files are optional: when missing, they are skipped.
+    , project-data and hub-selection files are optional: when missing, they are skipped.
     The status-weights path is returned even if the file does not exist; the
     run reports that with a template (see ``run_end_to_end``).
     """
@@ -197,6 +201,7 @@ def discover_inputs(
         status_weights_csv=_resolve(status_weights_csv),
         status_overrides_csv=_optional(status_overrides_csv),
         project_data_csv=_optional(project_data_csv),
+        hub_selection_csv=_optional(hub_selection_csv),
     )
 
 
@@ -381,6 +386,7 @@ class WorkflowResult:
     progress_df: Optional[pd.DataFrame] = None
     status_breakdown_df: Optional[pd.DataFrame] = None
     status_zero_df: Optional[pd.DataFrame] = None
+    selected_hubs: Optional['SelectedHubsReport'] = None
     config: Optional[ProcessingConfig] = None
     group_col: str = 'group'
     unmapped_statuses: List[str] = field(default_factory=list)
@@ -438,6 +444,8 @@ def run_end_to_end(
     status_weights_csv: str = 'status_weights.csv',
     status_overrides_csv: str = 'status_overrides.csv',
     project_data_csv: str = 'data.csv',
+    hub_selection_csv: str = 'hub_selection.csv',
+    urgent_threshold: float = 50.0,
     encoding: str = 'windows-1255',
     group_col: str = 'group',
     make_report: bool = True,
@@ -454,6 +462,10 @@ def run_end_to_end(
         status_overrides_csv: optional ``uid, Proj_status`` file. If it does not
             exist the statuses from the inventar / data.csv are used unchanged.
         project_data_csv: optional project attribute table.
+        hub_selection_csv: optional CSV of hub ids (``group`` column). If it exists, an Excel
+            report for just those hubs is written (``selected_hubs_report.xlsx``, see
+            ``selected_hubs``). Not produced in a ``link_only`` run.
+        urgent_threshold: hubs with ``status_progress_pct`` at or above this are 'דחוף'.
         encoding: encoding of the hubs CSV and of the CSVs written.
         group_col: hub id column.
         make_report: also write ``hub_urgency_map.html`` and ``hub_urgency_report.html``
@@ -476,7 +488,8 @@ def run_end_to_end(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     inputs = discover_inputs(
-        input_dir, hubs_csv, inventar, status_weights_csv, status_overrides_csv, project_data_csv
+        input_dir, hubs_csv, inventar, status_weights_csv, status_overrides_csv, project_data_csv,
+        hub_selection_csv,
     )
     logger.info(f"Hubs: {inputs.hubs_csv.name} | Inventar: {inputs.inventar} | "
                 f"Overrides: {inputs.status_overrides_csv.name if inputs.status_overrides_csv else 'none'}")
@@ -608,6 +621,17 @@ def run_end_to_end(
         n_overridden=n_overridden,
         outputs=outputs,
     )
+
+    if inputs.hub_selection_csv is not None:
+        result.selected_hubs = make_selected_hubs_report(
+            progress_df, joined_df, inputs.hub_selection_csv, output_dir / REPORT_FILENAME,
+            urgent_threshold=urgent_threshold, group_col=group_col,
+        )
+        outputs['selected_hubs_report'] = result.selected_hubs.path
+        logger.info(f"Selected-hubs report: {len(result.selected_hubs.summary_df)} hubs -> "
+                    f"{result.selected_hubs.path.name}")
+    else:
+        logger.info(f"No hub list found ({hub_selection_csv}) - selected-hubs report skipped")
 
     if make_report:
         from .report import export_report
