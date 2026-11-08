@@ -445,3 +445,25 @@ def test_ui_link_only_checkbox(geojson_folder, tmp_path):
     assert result is not None and result.progress_df is None
     assert 'Linking done' in ui.summary_html(result)
     assert (tmp_path / 'status_overrides_template.csv').exists()
+
+
+@pytest.mark.parametrize('hubs_encoding', ['utf-8', 'utf-8-sig'])
+def test_hubs_csv_in_utf8_is_read_even_when_encoding_is_windows_1255(
+        geojson_folder, tmp_path, hubs_encoding):
+    """A UTF-8 hubs CSV must not fail with "'charmap' codec can't decode byte 0x9c"."""
+    hubs = pd.read_csv(geojson_folder / 'hubs.csv', encoding='windows-1255')
+    hubs.to_csv(geojson_folder / 'hubs.csv', index=False, encoding=hubs_encoding)
+
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', encoding='windows-1255',
+                            make_report=False)
+
+    assert set(result.linker_outputs['base']['HubNameHE']) == {'מרכז', 'צפון', 'ריק'}
+
+
+def test_unreadable_csv_error_names_the_file(tmp_path):
+    from huburgency.workflow import read_csv_auto
+    bad = tmp_path / 'status_weights.csv'
+    # UTF-8 Hebrew followed by a windows-1255 byte: valid in neither encoding.
+    bad.write_bytes('Proj_status,weight\nביצוע,1\n'.encode('utf-8') + b'\xe0\x9c,0\n')
+    with pytest.raises(UnicodeDecodeError, match='status_weights.csv'):
+        read_csv_auto(bad)

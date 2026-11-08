@@ -51,6 +51,29 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 GEOJSON_SUFFIXES = ('.geojson', '.json')
+CSV_ENCODINGS = ('utf-8-sig', 'windows-1255')
+
+
+def read_csv_any_encoding(path, preferred: Optional[str] = None, **kwargs) -> pd.DataFrame:
+    """
+    Read a CSV trying ``preferred`` first, then UTF-8 (with/without BOM) and windows-1255.
+
+    Hebrew files come in both encodings (Excel "CSV UTF-8" vs. plain "CSV"), so a single
+    fixed encoding fails with e.g. "'charmap' codec can't decode byte 0x9c". If no encoding
+    works, the error names the file.
+    """
+    encodings = list(dict.fromkeys([e for e in (preferred, *CSV_ENCODINGS) if e]))
+    last_error: Optional[UnicodeDecodeError] = None
+    for encoding in encodings:
+        try:
+            return pd.read_csv(path, encoding=encoding, **kwargs)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    raise UnicodeDecodeError(
+        last_error.encoding, last_error.object, last_error.start, last_error.end,
+        f"{last_error.reason}. Could not read {Path(path).name} as any of {encodings}: the "
+        "file probably mixes encodings. Open it in Excel and save it as 'CSV UTF-8'."
+    )
 
 @dataclass
 class ProcessingConfig:
@@ -150,7 +173,7 @@ class HubDataLoader:
         logger.info(f"Loading hub data from {self.config.hubs_csv_path}")
         
         # Load raw data
-        df = pd.read_csv(self.config.hubs_csv_path, encoding=self.config.encoding)
+        df = read_csv_any_encoding(self.config.hubs_csv_path, self.config.encoding)
         logger.info(f"Loaded {len(df)} hub groups")
         
         # Parse H3 index lists

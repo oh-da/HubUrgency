@@ -35,10 +35,12 @@ import logging
 import pandas as pd
 
 from .inventar_hub_linker import (
+    CSV_ENCODINGS,
     GEOJSON_SUFFIXES,
     InventarHubLinker,
     ProcessingConfig,
     load_inventar_attributes,
+    read_csv_any_encoding,
 )
 from .hub_project_status_calculator import (
     HubProjectStatusPipeline,
@@ -98,17 +100,11 @@ class WorkflowInputs:
 
 def read_csv_auto(path: PathLike) -> pd.DataFrame:
     """Read a CSV that may be UTF-8 (with/without BOM) or windows-1255."""
-    last_error: Optional[Exception] = None
-    for encoding in ('utf-8-sig', 'windows-1255'):
-        try:
-            return pd.read_csv(path, encoding=encoding)
-        except UnicodeDecodeError as exc:
-            last_error = exc
-    raise last_error  # type: ignore[misc]
+    return read_csv_any_encoding(path)
 
 
 def _read_csv_header(path: Path) -> List[str]:
-    for encoding in ('utf-8-sig', 'windows-1255'):
+    for encoding in CSV_ENCODINGS:
         try:
             return list(pd.read_csv(path, encoding=encoding, nrows=0).columns)
         except UnicodeDecodeError:
