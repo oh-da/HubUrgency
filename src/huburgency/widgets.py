@@ -68,6 +68,8 @@ class HubUrgencyUI:
         self._inventar = w.Text(value='', description='Inventar:', placeholder='auto-detect')
         self._weights = w.Text(value='status_weights.csv', description='Weights:')
         self._overrides = w.Text(value='status_overrides.csv', description='Overrides:')
+        self._link_overrides = w.Text(value='hub_link_overrides.csv', description='Hub links:',
+                                      placeholder='optional: uid, group[, action] manual hub links')
         self._project_data = w.Text(value='data.csv', description='Project data:')
         self._hub_selection = w.Text(value='hub_selection.csv', description='Hub list:',
                                      placeholder='optional: CSV of hub ids -> selected_hubs_report.xlsx')
@@ -83,7 +85,7 @@ class HubUrgencyUI:
         self._preview_map = w.Checkbox(value=False, description='Preview the map inside the notebook '
                                        '(makes the notebook file larger)', indent=False)
         advanced = w.VBox([self._hubs, self._inventar, self._weights, self._overrides,
-                           self._project_data, self._hub_selection, self._threshold,
+                           self._link_overrides, self._project_data, self._hub_selection, self._threshold,
                            self._encoding, self._report, self._preview_map])
         accordion = w.Accordion(children=[advanced], selected_index=None)
         accordion.set_title(0, 'Advanced (file names, encoding, report)')
@@ -150,6 +152,8 @@ class HubUrgencyUI:
                         inventar=self._inventar.value.strip() or None,
                         status_weights_csv=self._weights.value.strip() or 'status_weights.csv',
                         status_overrides_csv=self._overrides.value.strip() or 'status_overrides.csv',
+                        hub_link_overrides_csv=(self._link_overrides.value.strip()
+                                                or 'hub_link_overrides.csv'),
                         project_data_csv=self._project_data.value.strip() or 'data.csv',
                         encoding=self._encoding.value,
                         make_report=self._report.value,
@@ -198,6 +202,12 @@ class HubUrgencyUI:
         if result.unknown_override_uids:
             lines.append(f"⚠ Override UIDs not in the project data (ignored): "
                          f"{', '.join(map(str, result.unknown_override_uids))}")
+        link_log = result.link_overrides_df
+        if link_log is not None and len(link_log):
+            counts = link_log['outcome'].value_counts()
+            mark = '⚠ ' if any(o.startswith('ignored') for o in counts.index) else ''
+            lines.append(f"{mark}Hub link overrides: "
+                         + escape(', '.join(f"{o}: {n}" for o, n in counts.items())))
         return '<br>'.join(lines) + f'<details><summary>Output files</summary><ul>{files}</ul></details>'
 
 

@@ -180,14 +180,51 @@ inventar / `data.csv` are used unchanged. In the end-to-end workflow the changes
 visible in the output (`Proj_status_original`, `status_overridden`), and UIDs that
 are not in the project data are reported and ignored.
 
-## 2.7 Optional: list of hubs for a focused report
+## 2.7 Optional: manual project–hub links
+
+Use this when a project's geometry in the inventar is wrong (or missing a section) and
+cannot be fixed at the source, so the spatial test puts it in the wrong hub or in none.
+A CSV `hub_link_overrides.csv` in the input folder of the end-to-end workflow:
+
+| Column | Content |
+|--------|---------|
+| `uid` | project UID |
+| `group` | hub id |
+| `action` | optional: `add` (default, also for an empty cell) links the project to the hub; `remove` drops a link found by the spatial test |
+
+```csv
+uid,group,action
+12345,17,add
+20881,17,remove
+```
+
+The rows are applied right after Stage 1, so they reach every later output
+(`project_hub_links.csv`, the joined table, progress, the selected-hubs report and the
+HTML report). Rules:
+
+- An `add` needs the UID to exist in the project data (inventar attributes or `data.csv`),
+  because that is where its status comes from, and the hub to exist in the hubs CSV.
+  Otherwise the row is **ignored and reported**. A project whose feature is dropped from
+  the inventar (e.g. a polygon) must therefore be supplied through `data.csv`.
+- Adding an existing link, or removing one that does not exist, is a no-op.
+- If a (uid, group) pair appears more than once, the last row wins.
+- Status overrides (2.6) still apply: a manually linked project is scored with its final status.
+- An unknown `action` or a missing `uid` / `group` column stops the run before linking.
+- The Stage 1 files (`hubs_with_inventar*.csv`) stay purely spatial. Manual links are marked
+  `link_source = manual` downstream and have no H3 cells; on the map the project is drawn
+  where its geometry is, not at the hub.
+
+What happened to each row is written to `hub_link_overrides_applied.csv`
+(see [Chapter 5](05_outputs.md)).
+
+## 2.8 Optional: list of hubs for a focused report
 
 A CSV `hub_selection.csv` with a `group` column (hub ids). If it exists in the input folder
 of the end-to-end workflow, an Excel report limited to those hubs is written
 (`selected_hubs_report.xlsx`, see [Chapter 5](05_outputs.md)). It can also be produced later,
 from existing results, with `selected_hubs_report(output_dir, hub_list_csv)`.
 
-## 2.8 Configuration knobs
+## 2.9 Configuration knobs
 
 Both stages expose configuration so you rarely need to touch input files:
 

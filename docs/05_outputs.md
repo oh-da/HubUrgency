@@ -116,15 +116,16 @@ per_hub["status_zero_pct"] = 100 * per_hub["status_zero_count"] / per_hub["total
 | File | Content |
 |------|---------|
 | `hubs_with_inventar[_combined/_exploded].csv` | Stage 1 outputs (5.1) |
-| `project_hub_links.csv` | **written right after Stage 1, before scoring.** One row per (project `uid`, hub `group`): `proj_name`, `main_type`, current `Proj_status`, `group`, `HubNameHE`, `intersecting_h3` (Python list of the hub's H3 cells the project touches, same notation as the hubs CSV's `h3_index`) and `n_intersecting_cells`. A project touching several hubs has several rows; projects touching no hub are absent |
+| `project_hub_links.csv` | **written right after Stage 1, before scoring.** One row per (project `uid`, hub `group`): `proj_name`, `main_type`, current `Proj_status`, `group`, `HubNameHE`, `intersecting_h3` (Python list of the hub's H3 cells the project touches, same notation as the hubs CSV's `h3_index`), `n_intersecting_cells` and `link_source` (`spatial`, or `manual` for links added through `hub_link_overrides.csv`: those have an empty cell list). A project touching several hubs has several rows; projects touching no hub are absent |
+| `hub_link_overrides_applied.csv` | only if `hub_link_overrides.csv` is given. One row per override: `uid`, `group`, `action`, `outcome` (`added`, `removed`, `no change: already linked`, `no change: not linked`, `ignored: uid not in the project data`, `ignored: hub not in the hubs CSV`) |
 | `status_overrides_template.csv` | **written with the file above.** One row per linked project: `uid`, `Proj_status` (current), `proj_name`, `main_type`, `n_hubs`, `hubs` (e.g. `12 Hub A; 15 Hub B`). Edit `Proj_status`, save as `status_overrides.csv` in the input folder and re-run; unchanged rows are no-ops and the extra columns are ignored |
-| `hub_project_joined.csv` | one row per (hub, project) with final status; adds `Proj_status_original` and `status_overridden` |
+| `hub_project_joined.csv` | one row per (hub, project) with final status; adds `Proj_status_original`, `status_overridden` and `link_source` (`spatial` / `manual`) |
 | `hub_progress.csv` | per-hub progress (5.2.2) plus `x`, `y`, `HubNameHE` |
 | `hub_status_breakdown.csv` | project counts per status (5.2.3) |
 | `status_zero_projects.csv` | projects whose status has weight 0 (zero-project hubs excluded) |
 | `status_weights_template.csv` | the statuses found in the data with suggested weights, ready to edit |
 | `selected_hubs_report.xlsx` | only if a hub list is given (`hub_selection.csv` in the input folder). Sheet **Summary**: run date, urgency rule, hubs requested / in report / urgent / not urgent, hub ids not found, then one row per hub: `group`, `HubNameHE`, `total_projects`, `current_weighted_sum`, `max_possible_sum`, `unique_statuses`, `status_progress_pct`, `Urgency`. Sheet **Projects**: one row per (hub, project): `group`, `HubNameHE`, `project_uid`, `proj_name`, `main_type`, `Proj_status` (final), `Proj_status_original`, `status_overridden`, `status_progress_pct`, `Urgency`; a hub without projects has one row with the project columns empty |
-| `hub_urgency_report.html` | self-contained report: key figures, warnings (unmapped statuses, unknown override UIDs, hubs without projects), status counts, overrides, progress histogram, top/bottom 15 hubs |
+| `hub_urgency_report.html` | self-contained report: key figures, warnings (unmapped statuses, unknown override UIDs, ignored hub link overrides, hubs without projects), status counts, status overrides, manual hub links, progress histogram, top/bottom 15 hubs |
 | `hub_urgency_map.html` | interactive Leaflet map: hub H3 cells coloured by progress (grey = no projects), project geometries coloured by status weight, tooltips with names and status mix |
 
 The map is a normal HTML file: it loads Leaflet and the basemap from the internet,
@@ -143,6 +144,11 @@ interactive notebook, `LINK_ONLY` in the other one): the run stops right after S
 needs no weights file. Open `project_hub_links.csv` to see which hubs and H3 cells each project
 touches, change `Proj_status` in `status_overrides_template.csv`, save it as
 `status_overrides.csv` in the input folder and run again without `link_only`.
+
+**Assigning a project to a hub by hand.** When a project's geometry is wrong and it misses
+its hub, add a row `uid,group,add` to `hub_link_overrides.csv` in the input folder and run
+again (see [2.7](02_inputs.md)). Check `hub_link_overrides_applied.csv` or the *Manual hub
+links* table in the report to confirm the row was `added`.
 
 ## 5.4 Quick analysis recipes
 
