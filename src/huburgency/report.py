@@ -8,7 +8,7 @@ Turns a ``WorkflowResult`` into two shareable HTML files:
                               status progress, project geometries coloured by
                               status weight (needs ``folium``)
     hub_urgency_report.html   single self-contained page: key figures, warnings,
-                              status weights and counts, overrides, progress
+                              status weights and counts, overrides, manual hub links, progress
                               histogram, top / bottom hubs (no extra packages)
 
 Usage::
@@ -263,6 +263,19 @@ def build_report(result, path, map_file: Optional[Path] = None):
     if result.unknown_override_uids:
         warnings.append('Override UIDs not found in the project data (ignored): '
                         + ', '.join(map(str, result.unknown_override_uids)))
+    link_log = getattr(result, 'link_overrides_df', None)
+    link_overrides_html = ''
+    if link_log is not None and len(link_log):
+        ignored = link_log[link_log['outcome'].str.startswith('ignored')]
+        if len(ignored):
+            warnings.append('Hub link overrides ignored: ' + '; '.join(
+                f"uid {r['uid']} / hub {r['group']} ({r['outcome'][len('ignored: '):]})"
+                for _, r in ignored.iterrows()))
+        names = dict(zip(projects['uid'], projects['proj_name']))
+        rows = [[int(r['uid']), names.get(r['uid'], ''), r['group'], r['action'], r['outcome']]
+                for _, r in link_log.iterrows()]
+        link_overrides_html = ('<h2>Manual hub links</h2>'
+                               + _table(['UID', 'Project', 'Hub', 'Action', 'Outcome'], rows))
     n_empty = int((hubs['total_projects'] == 0).sum())
     if n_empty:
         warnings.append(f"{n_empty} hub(s) have no linked project (progress 0%, shown grey on the map).")
@@ -299,6 +312,8 @@ def build_report(result, path, map_file: Optional[Path] = None):
         sources.append(result.inputs.status_overrides_csv.name)
     else:
         sources.append('(no status overrides file)')
+    if getattr(result.inputs, 'hub_link_overrides_csv', None) is not None:
+        sources.append(result.inputs.hub_link_overrides_csv.name)
 
     html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -314,6 +329,7 @@ def build_report(result, path, map_file: Optional[Path] = None):
 <h2>Status weights and project counts</h2>
 {_table(['Status', 'Weight', 'Projects'], status_rows, num_cols=(1, 2))}
 {overrides_html}
+{link_overrides_html}
 <div class="tables"><div><h2>Highest progress</h2>{top}</div><div><h2>Lowest progress</h2>{bottom}</div></div>
 </main></body></html>"""
 

@@ -360,7 +360,9 @@ def test_project_hub_links_one_row_per_project_and_hub(geojson_folder, tmp_path)
 
     links = _read(out / 'project_hub_links.csv')
     assert list(links.columns) == ['uid', 'proj_name', 'main_type', 'Proj_status', 'group',
-                                   'HubNameHE', 'intersecting_h3', 'n_intersecting_cells']
+                                   'HubNameHE', 'intersecting_h3', 'n_intersecting_cells',
+                                   'link_source']
+    assert set(links['link_source']) == {'spatial'}
     assert links['uid'].tolist() == [1, 2, 3]            # hub 3 has no project, polygon excluded
     assert links['group'].tolist() == [1, 1, 2]
     assert links['HubNameHE'].tolist() == ['מרכז', 'מרכז', 'צפון']
@@ -467,3 +469,123 @@ def test_unreadable_csv_error_names_the_file(tmp_path):
     bad.write_bytes('Proj_status,weight\nביצוע,1\n'.encode('utf-8') + b'\xe0\x9c,0\n')
     with pytest.raises(UnicodeDecodeError, match='status_weights.csv'):
         read_csv_auto(bad)
+
+
+# =============================================================================
+# Manual project <-> hub links (hub_link_overrides.csv)
+# =============================================================================
+
+def _write_link_overrides(folder, rows, **kw):
+    pd.DataFrame(rows).to_csv(folder / 'hub_link_overrides.csv', index=False,
+                              encoding='utf-8-sig', **kw)
+
+
+def test_link_override_adds_project_to_hub(geojson_folder, tmp_path):
+    # Hub 3 touches nothing; project 1 ('ביצוע', weight 1) is assigned to it by hand.
+    _write_link_overrides(geojson_folder, [{'uid': 1, 'group': 3, 'action': 'add'}])
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out, make_report=False)
+
+    assert _progress(result) == {1: 75.0, 2: 0.0, 3: 100.0}
+    assert result.link_overrides_df['outcome'].tolist() == ['added']
+    links = _read(out / 'project_hub_links.csv')
+    manual = links[links['link_source'] == 'manual']
+    assert manual[['uid', 'group', 'HubNameHE', 'n_intersecting_cells']].values.tolist() == [[1, 3, 'ריק', 0]]
+    assert manual['intersecting_h3'].tolist() == ['[]']
+    joined = _read(out / 'hub_project_joined.csv')
+    row = joined[(joined['group'] == 3) & (joined['project_uid'] == 1)]
+    assert row['link_source'].tolist() == ['manual'] and row['Proj_status'].tolist() == ['ביצוע']
+    # The Stage 1 file stays purely spatial; the audit file records the change.
+    stage1 = _read(out / 'hubs_with_inventar_exploded.csv')
+    assert stage1[stage1['group'] == 3]['project_uid'].isna().all()
+    assert _read(out / 'hub_link_overrides_applied.csv')['outcome'].tolist() == ['added']
+    template = _read(out / 'status_overrides_template.csv').set_index('uid')
+    assert template.loc[1, 'n_hubs'] == 2
+
+
+def test_link_override_action_defaults_to_add(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [{'uid': 2, 'group': 3}])
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert _progress(result)[3] == 50.0
+
+
+def test_link_override_removes_spatial_link(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [{'uid': 2, 'group': 1, 'action': 'Remove'}])
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert _progress(result) == {1: 100.0, 2: 0.0, 3: 0.0}
+    assert result.links_df['uid'].tolist() == [1, 3]
+    totals = result.progress_df.set_index('group')['total_projects'].to_dict()
+    assert totals == {1: 1, 2: 1, 3: 0}
+
+
+def test_link_override_removing_last_project_keeps_the_hub(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [{'uid': 3, 'group': 2, 'action': 'remove'}])
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    totals = result.progress_df.set_index('group')['total_projects'].to_dict()
+    assert totals == {1: 2, 2: 0, 3: 0}
+
+
+def test_link_override_no_ops_and_ignored_rows_are_reported(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [
+        {'uid': 1, 'group': 1, 'action': 'add'},       # already linked spatially
+        {'uid': 1, 'group': 2, 'action': 'remove'},    # not linked
+        {'uid': 999, 'group': 3, 'action': 'add'},     # unknown project
+        {'uid': 1, 'group': 77, 'action': 'add'},      # unknown hub
+    ])
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out)
+    assert result.link_overrides_df['outcome'].tolist() == [
+        'no change: already linked', 'no change: not linked',
+        'ignored: uid not in the project data', 'ignored: hub not in the hubs CSV']
+    assert _progress(result) == {1: 75.0, 2: 0.0, 3: 0.0}
+    assert set(result.links_df['link_source']) == {'spatial'}
+    report = (out / 'hub_urgency_report.html').read_text(encoding='utf-8')
+    assert 'Manual hub links' in report and 'Hub link overrides ignored' in report
+    assert 'uid 999 / hub 3' in report
+
+
+def test_link_override_last_row_per_pair_wins(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [
+        {'uid': 1, 'group': 3, 'action': 'remove'},
+        {'uid': 1, 'group': 3, 'action': 'add'},
+    ])
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert result.link_overrides_df['outcome'].tolist() == ['added']
+    assert _progress(result)[3] == 100.0
+
+
+def test_link_override_uses_overridden_status(geojson_folder, tmp_path):
+    pd.DataFrame({'uid': [3], 'Proj_status': ['ביצוע']}) \
+        .to_csv(geojson_folder / 'status_overrides.csv', index=False, encoding='utf-8-sig')
+    _write_link_overrides(geojson_folder, [{'uid': 3, 'group': 3}])
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert _progress(result) == {1: 75.0, 2: 100.0, 3: 100.0}
+
+
+def test_link_override_bad_file_fails_before_linking(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [{'uid': 1, 'group': 3, 'action': 'move'}])
+    with pytest.raises(ValueError, match='unknown action'):
+        run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    _write_link_overrides(geojson_folder, [{'uid': 1, 'hub': 3}])
+    with pytest.raises(ValueError, match='missing required columns'):
+        run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert not (tmp_path / 'out' / 'hubs_with_inventar.csv').exists()
+
+
+def test_link_override_applies_in_link_only_and_selected_hubs(geojson_folder, tmp_path):
+    _write_link_overrides(geojson_folder, [{'uid': 1, 'group': 3}])
+    result = run_end_to_end(geojson_folder, tmp_path / 'lo', link_only=True)
+    assert len(result.links_df) == 4 and result.link_overrides_df['outcome'].tolist() == ['added']
+
+    pd.DataFrame({'group': [3]}).to_csv(geojson_folder / 'hub_selection.csv', index=False)
+    result = run_end_to_end(geojson_folder, tmp_path / 'out', make_report=False)
+    assert result.selected_hubs.summary_df['total_projects'].tolist() == [1]
+    assert result.selected_hubs.projects_df['project_uid'].tolist() == [1]
+
+
+def test_no_link_overrides_file_changes_nothing(geojson_folder, tmp_path):
+    out = tmp_path / 'out'
+    result = run_end_to_end(geojson_folder, out, make_report=False)
+    assert result.link_overrides_df is None and result.inputs.hub_link_overrides_csv is None
+    assert not (out / 'hub_link_overrides_applied.csv').exists()
+    assert _progress(result) == {1: 75.0, 2: 0.0, 3: 0.0}

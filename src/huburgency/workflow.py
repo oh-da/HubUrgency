@@ -17,6 +17,8 @@ can be overridden):
     geom_*.shp              inventar as shapefiles (also found in a sub-folder)
     status_weights.csv      Proj_status -> weight (required)
     status_overrides.csv    optional: uid, Proj_status - manual status fixes
+    hub_link_overrides.csv  optional: uid, group[, action] - manual project<->hub
+                            links (action = add / remove; default add)
     data.csv                optional: project attributes; when absent they are
                             read from the inventar (GeoJSON properties)
 
@@ -32,6 +34,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 import logging
 
+import numpy as np
 import pandas as pd
 
 from .inventar_hub_linker import (
@@ -63,6 +66,7 @@ OUT_STATUS_ZERO = 'status_zero_projects.csv'
 OUT_WEIGHTS_TEMPLATE = 'status_weights_template.csv'
 OUT_LINKS = 'project_hub_links.csv'
 OUT_OVERRIDES_TEMPLATE = 'status_overrides_template.csv'
+OUT_LINK_OVERRIDES = 'hub_link_overrides_applied.csv'
 OUT_MAP = 'hub_urgency_map.html'
 OUT_REPORT = 'hub_urgency_report.html'
 
@@ -96,6 +100,7 @@ class WorkflowInputs:
     status_overrides_csv: Optional[Path] = None
     project_data_csv: Optional[Path] = None
     hub_selection_csv: Optional[Path] = None
+    hub_link_overrides_csv: Optional[Path] = None
 
 
 def read_csv_auto(path: PathLike) -> pd.DataFrame:
@@ -163,13 +168,15 @@ def discover_inputs(
     status_overrides_csv: str = 'status_overrides.csv',
     project_data_csv: str = 'data.csv',
     hub_selection_csv: str = 'hub_selection.csv',
+    hub_link_overrides_csv: str = 'hub_link_overrides.csv',
 ) -> WorkflowInputs:
     """
     Locate every input inside ``input_dir``.
 
     File names are relative to ``input_dir`` (absolute paths also work).
-    ``hubs_csv`` and ``inventar`` are auto-detected when None. The overrides
-    , project-data and hub-selection files are optional: when missing, they are skipped.
+    ``hubs_csv`` and ``inventar`` are auto-detected when None. The status-overrides,
+    hub-link-overrides, project-data and hub-selection files are optional: when
+    missing, they are skipped.
     The status-weights path is returned even if the file does not exist; the
     run reports that with a template (see ``run_end_to_end``).
     """
@@ -198,6 +205,7 @@ def discover_inputs(
         status_overrides_csv=_optional(status_overrides_csv),
         project_data_csv=_optional(project_data_csv),
         hub_selection_csv=_optional(hub_selection_csv),
+        hub_link_overrides_csv=_optional(hub_link_overrides_csv),
     )
 
 
@@ -301,11 +309,128 @@ def apply_status_overrides(
 
 
 # =============================================================================
+# Manual project <-> hub links (applied right after Stage 1)
+# =============================================================================
+
+LINK_SOURCE_COL = 'link_source'          # 'spatial' or 'manual'
+LINK_ACTIONS = ('add', 'remove')
+LINK_OVERRIDE_COLUMNS = ['uid', 'group', 'action', 'outcome']
+
+
+def _group_key(value) -> str:
+    """Comparable form of a hub id: 12, 12.0 and ' 12 ' all become '12'."""
+    if isinstance(value, (float, np.floating)) and float(value).is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def normalise_link_overrides(override_df: pd.DataFrame, group_col: str = 'group') -> pd.DataFrame:
+    """
+    Validated ``uid`` (int) / ``group`` / ``action`` table, last row per (uid, group) wins.
+
+    ``action`` is ``add`` or ``remove`` (any case); a missing column or an empty
+    cell means ``add``. Rows without a usable ``uid`` or ``group`` are dropped.
+    """
+    missing = {'uid', group_col} - set(override_df.columns)
+    if missing:
+        raise ValueError(f"Hub link overrides file is missing required columns: {sorted(missing)}")
+    links = pd.DataFrame({
+        'uid': pd.to_numeric(override_df['uid'], errors='coerce'),
+        'group': override_df[group_col],
+    })
+    if 'action' in override_df.columns:
+        action = override_df['action'].fillna('').astype(str).str.strip().str.lower()
+        links['action'] = action.replace('', 'add')
+    else:
+        links['action'] = 'add'
+    links = links.dropna(subset=['uid', 'group'])
+    bad = sorted(set(links['action']) - set(LINK_ACTIONS))
+    if bad:
+        raise ValueError(f"Hub link overrides: unknown action(s) {bad}; use 'add' or 'remove'")
+    links['uid'] = links['uid'].astype('int64')
+    links['_key'] = links['group'].map(_group_key)
+    links = links.drop_duplicates(subset=['uid', '_key'], keep='last')
+    return links.drop(columns='_key').reset_index(drop=True)
+
+
+def apply_hub_link_overrides(
+    exploded_df: pd.DataFrame,
+    base_df: pd.DataFrame,
+    project_df: pd.DataFrame,
+    override_df: Optional[pd.DataFrame],
+    group_col: str = 'group',
+):
+    """
+    Add / remove (project, hub) pairs in the Stage 1 exploded table.
+
+    Returns ``(exploded, log)``. ``exploded`` is a copy with a ``link_source``
+    column: ``'spatial'`` for links found by the H3 intersection, ``'manual'``
+    for added ones (those rows have no ``h3_index``). Removing a link blanks its
+    ``project_uid`` so the hub's rows remain. ``log`` has one row per override
+    with its ``outcome`` (``added``, ``removed``, ``no change: ...`` or
+    ``ignored: ...``); it is None when ``override_df`` is None.
+
+    An ``add`` needs the UID to exist in the project data (that is where its
+    status comes from) and the hub to exist in the hubs CSV; otherwise the row
+    is ignored and reported.
+    """
+    result = exploded_df.copy()
+    uid_num = pd.to_numeric(result['project_uid'], errors='coerce')
+    result[LINK_SOURCE_COL] = np.where(uid_num.notna(), 'spatial', None)
+    if override_df is None:
+        return result, None
+
+    overrides = normalise_link_overrides(override_df, group_col)
+    known_uids = set(project_df['uid'].astype('int64'))
+    hub_rows = base_df.drop_duplicates(subset=group_col)
+    hub_of = {_group_key(g): row for g, row in zip(hub_rows[group_col], hub_rows.to_dict('records'))}
+    hub_cols = [group_col] + [c for c in _HUB_INFO_COLS if c in result.columns and c in base_df.columns]
+    group_keys = result[group_col].map(_group_key)
+
+    outcomes, new_rows = [], []
+    added = set()
+    for uid, group, action in zip(overrides['uid'], overrides['group'], overrides['action']):
+        key = _group_key(group)
+        if key not in hub_of:
+            outcomes.append('ignored: hub not in the hubs CSV')
+            continue
+        if action == 'add' and uid not in known_uids:
+            outcomes.append('ignored: uid not in the project data')
+            continue
+        mask = (group_keys == key) & (uid_num == uid)
+        if action == 'add':
+            if mask.any() or (uid, key) in added:
+                outcomes.append('no change: already linked')
+                continue
+            row = {c: hub_of[key][c] for c in hub_cols}
+            row.update({'project_uid': uid, LINK_SOURCE_COL: 'manual'})
+            new_rows.append(row)
+            added.add((uid, key))
+            outcomes.append('added')
+        else:
+            if not mask.any():
+                outcomes.append('no change: not linked')
+                continue
+            result.loc[mask, ['project_uid', LINK_SOURCE_COL]] = [np.nan, None]
+            uid_num = uid_num.mask(mask)
+            outcomes.append('removed')
+
+    if new_rows:
+        result = pd.concat([result, pd.DataFrame(new_rows, columns=result.columns)],
+                           ignore_index=True)
+    log = overrides.assign(outcome=outcomes)[LINK_OVERRIDE_COLUMNS]
+    for outcome, n in log['outcome'].value_counts().items():
+        logger.log(logging.WARNING if outcome.startswith('ignored') else logging.INFO,
+                   f"Hub link overrides - {outcome}: {n}")
+    return result, log
+
+
+# =============================================================================
 # Project <-> hub review tables (written after Stage 1, before scoring)
 # =============================================================================
 
 LINK_COLUMNS = ['uid', 'proj_name', 'main_type', 'Proj_status', 'group', 'HubNameHE',
-                'intersecting_h3', 'n_intersecting_cells']
+                'intersecting_h3', 'n_intersecting_cells', LINK_SOURCE_COL]
 
 
 def build_project_hub_links(
@@ -317,7 +442,9 @@ def build_project_hub_links(
     Built from the Stage 1 exploded table (one row per H3 cell and project). The
     ``intersecting_h3`` column is a Python list, written the same way as the hubs CSV's
     ``h3_index``. Projects touching no hub do not appear. ``Proj_status`` is the
-    current status (manual overrides already applied).
+    current status (manual overrides already applied). ``link_source`` is
+    ``'manual'`` for links added through ``hub_link_overrides.csv`` (they touch no
+    cell: empty ``intersecting_h3``), otherwise ``'spatial'``.
     """
     links = exploded_df.dropna(subset=['project_uid']).copy()
     links['uid'] = pd.to_numeric(links['project_uid'], errors='coerce')
@@ -325,11 +452,14 @@ def build_project_hub_links(
     links['uid'] = links['uid'].astype('int64')
     if 'HubNameHE' not in links.columns:
         links['HubNameHE'] = ''
+    if LINK_SOURCE_COL not in links.columns:
+        links[LINK_SOURCE_COL] = 'spatial'
 
     grouped = (
         links.groupby(['uid', group_col], sort=True)
         .agg(HubNameHE=('HubNameHE', 'first'),
-             intersecting_h3=('h3_index', lambda cells: list(dict.fromkeys(cells))))
+             intersecting_h3=('h3_index', lambda cells: list(dict.fromkeys(cells.dropna()))),
+             link_source=(LINK_SOURCE_COL, 'first'))
         .reset_index()
         .rename(columns={group_col: 'group'})
     )
@@ -388,6 +518,8 @@ class WorkflowResult:
     unmapped_statuses: List[str] = field(default_factory=list)
     unknown_override_uids: List[int] = field(default_factory=list)
     n_overridden: int = 0
+    # One row per hub_link_overrides.csv entry with its outcome; None without the file.
+    link_overrides_df: Optional[pd.DataFrame] = None
     outputs: Dict[str, Path] = field(default_factory=dict)
 
 
@@ -441,6 +573,7 @@ def run_end_to_end(
     status_overrides_csv: str = 'status_overrides.csv',
     project_data_csv: str = 'data.csv',
     hub_selection_csv: str = 'hub_selection.csv',
+    hub_link_overrides_csv: str = 'hub_link_overrides.csv',
     urgent_threshold: float = 50.0,
     encoding: str = 'windows-1255',
     group_col: str = 'group',
@@ -461,6 +594,12 @@ def run_end_to_end(
         hub_selection_csv: optional CSV of hub ids (``group`` column). If it exists, an Excel
             report for just those hubs is written (``selected_hubs_report.xlsx``, see
             ``selected_hubs``). Not produced in a ``link_only`` run.
+        hub_link_overrides_csv: optional ``uid, group[, action]`` file that links a
+            project to a hub by hand (``add``, the default) or drops a spatial link
+            (``remove``). Applied right after Stage 1, so it reaches every later
+            output; what happened to each row is written to
+            ``hub_link_overrides_applied.csv``. The Stage 1 CSVs
+            (``hubs_with_inventar*.csv``) stay purely spatial.
         urgent_threshold: hubs with ``status_progress_pct`` at or above this are 'דחוף'.
         encoding: encoding of the hubs CSV and of the CSVs written.
         group_col: hub id column.
@@ -485,7 +624,7 @@ def run_end_to_end(
 
     inputs = discover_inputs(
         input_dir, hubs_csv, inventar, status_weights_csv, status_overrides_csv, project_data_csv,
-        hub_selection_csv,
+        hub_selection_csv, hub_link_overrides_csv,
     )
     logger.info(f"Hubs: {inputs.hubs_csv.name} | Inventar: {inputs.inventar} | "
                 f"Overrides: {inputs.status_overrides_csv.name if inputs.status_overrides_csv else 'none'}")
@@ -510,6 +649,12 @@ def run_end_to_end(
         logger.info("No status overrides file found - using statuses as they are in the data")
     project_df = apply_status_overrides(project_df, override_df)
     n_overridden = int(project_df['status_overridden'].sum())
+    link_override_df = None
+    if inputs.hub_link_overrides_csv is not None:
+        link_override_df = read_csv_auto(inputs.hub_link_overrides_csv)
+        normalise_link_overrides(link_override_df, group_col)   # fail before the slow linking
+        logger.info(f"Hub link overrides: {len(link_override_df)} rows from "
+                    f"{inputs.hub_link_overrides_csv.name}")
 
     outputs: Dict[str, Path] = {}
     template = build_weights_template(project_df['Proj_status'])
@@ -540,8 +685,15 @@ def run_end_to_end(
             f"{config.output_csv_path.stem}{suffix}"
         )
 
+    # --- Manual project <-> hub links (the Stage 1 CSVs above stay purely spatial) ---
+    exploded_df, link_overrides_df = apply_hub_link_overrides(
+        linker_outputs['exploded'], linker_outputs['base'], project_df, link_override_df, group_col)
+    if link_overrides_df is not None:
+        outputs['link_overrides_applied'] = _save_csv(
+            link_overrides_df, output_dir / OUT_LINK_OVERRIDES, encoding)
+
     # --- Mid-run review files: which hubs / H3 cells does each project touch? ---
-    links_df = build_project_hub_links(linker_outputs['exploded'], project_df, group_col)
+    links_df = build_project_hub_links(exploded_df, project_df, group_col)
     overrides_template_df = build_overrides_template(links_df)
     outputs['project_hub_links'] = _save_csv(links_df, output_dir / OUT_LINKS, encoding)
     outputs['overrides_template'] = _save_csv(
@@ -556,12 +708,12 @@ def run_end_to_end(
             linker_outputs=linker_outputs, links_df=links_df,
             overrides_template_df=overrides_template_df, config=config, group_col=group_col,
             unknown_override_uids=unknown_override_uids, n_overridden=n_overridden,
-            outputs=outputs,
+            link_overrides_df=link_overrides_df, outputs=outputs,
         )
 
     # --- Stage 2 (pre-exploded mode: one row per hub x project, deduplicated) ---
     base_df = linker_outputs['base']
-    exploded = linker_outputs['exploded'].copy()
+    exploded = exploded_df.copy()
     drop_cols = [c for c in exploded.columns
                  if c == 'h3_index' or c == 'all_project_uids' or c.startswith('intersecting_')]
     exploded = exploded.drop(columns=drop_cols)
@@ -615,6 +767,7 @@ def run_end_to_end(
         unmapped_statuses=unmapped,
         unknown_override_uids=unknown_override_uids,
         n_overridden=n_overridden,
+        link_overrides_df=link_overrides_df,
         outputs=outputs,
     )
 

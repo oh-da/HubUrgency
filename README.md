@@ -17,6 +17,7 @@ HubUrgency is a two-part pipeline that:
 - **Weighted Progress Metrics**: Customizable status weights for accurate progress tracking
 - **Flexible Inputs**: Raw (hub + project tables) or pre-exploded `(group, project_uid)` data
 - **Status Overrides**: Apply manual `Proj_status` corrections without editing source data
+- **Hub Link Overrides**: Assign a project to a hub by hand (or drop a spatial link) when its GIS geometry is wrong
 - **Complete Hub Coverage**: Optional all-hubs backfill so hubs with no projects still report (at 0%)
 - **Multiple Output Formats**: CSV outputs with various aggregation levels
 
@@ -61,7 +62,9 @@ result.progress_df          # per-hub progress
 
 The input folder holds the hubs CSV, the inventar (a `.geojson` file **or**
 `geom_*.shp` shapefiles), `status_weights.csv`, and optionally `status_overrides.csv`
-(`uid`, `Proj_status` - overrides those projects' statuses when the file exists) and
+(`uid`, `Proj_status` - overrides those projects' statuses when the file exists),
+`hub_link_overrides.csv` (`uid`, `group`, optional `action` = `add`/`remove` - links a project to a hub
+by hand, or drops a spatial link) and
 `data.csv` (project attributes, needed only if the inventar does not carry them).
 See [docs/02_inputs.md](docs/02_inputs.md).
 
